@@ -1,4 +1,4 @@
-// src/executor/builtin.rs
+// src/executor/builtin.rs - Cross-platform builtins
 use crate::shell::Shell;
 use std::path::PathBuf;
 
@@ -6,16 +6,17 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
     match args[0].as_str() {
         "cd"             => Some(builtin_cd(shell, args)),
         "exit" | "quit" => std::process::exit(shell.last_exit_code),
-        "export"         => Some(builtin_export(shell, args)),
+        "export" | "set" => Some(builtin_export(shell, args)),
         "unset"          => Some(builtin_unset(shell, args)),
         "alias"          => Some(builtin_alias(shell, args)),
         "unalias"        => Some(builtin_unalias(shell, args)),
         "history"        => Some(builtin_history(shell)),
         "echo"           => Some(builtin_echo(args)),
-        "pwd"            => { println!("{}", shell.cwd.display()); Some(0) }
+        "pwd"            => Some(builtin_pwd(shell)),
         "source" | "."   => Some(builtin_source(shell, args)),
         "help"           => Some(builtin_help()),
         "jobs"           => Some(builtin_jobs(shell)),
+        "clear" | "cls"  => Some(builtin_clear()),
         _                => None,
     }
 }
@@ -34,7 +35,16 @@ fn builtin_cd(shell: &mut Shell, args: &[String]) -> i32 {
                 None => { eprintln!("cd: no previous directory"); return 1; }
             }
         }
-        Some(path) => shell.cwd.join(path),
+        Some(path) => {
+            // Handle ~ in the middle of a path
+            let path = if path.starts_with("~/") || path.starts_with("~\\") {
+                let home = dirs::home_dir().unwrap_or_default();
+                home.join(&path[2..])
+            } else {
+                shell.cwd.join(path)
+            };
+            path
+        }
     };
 
     let target = match target.canonicalize() {
@@ -55,10 +65,15 @@ fn builtin_cd(shell: &mut Shell, args: &[String]) -> i32 {
     }
 }
 
+fn builtin_pwd(shell: &Shell) -> i32 {
+    println!("{}", shell.cwd.display());
+    0
+}
+
 fn builtin_export(shell: &mut Shell, args: &[String]) -> i32 {
     if args.len() == 1 {
         for (k, v) in &shell.env {
-            println!("export {}={}", k, v);
+            println!("{}={}", k, v);
         }
         return 0;
     }
@@ -66,7 +81,7 @@ fn builtin_export(shell: &mut Shell, args: &[String]) -> i32 {
         if let Some((k, v)) = arg.split_once('=') {
             let v = v.trim_matches('"').trim_matches('\'').to_string();
             shell.env.insert(k.to_string(), v.clone());
-            // SAFETY: single-threaded shell, safe to set env vars
+            // SAFETY: single-threaded shell process
             unsafe { std::env::set_var(k, &v); }
         }
     }
@@ -76,7 +91,6 @@ fn builtin_export(shell: &mut Shell, args: &[String]) -> i32 {
 fn builtin_unset(shell: &mut Shell, args: &[String]) -> i32 {
     for arg in &args[1..] {
         shell.env.remove(arg);
-        // SAFETY: single-threaded shell
         unsafe { std::env::remove_var(arg); }
     }
     0
@@ -91,7 +105,10 @@ fn builtin_alias(shell: &mut Shell, args: &[String]) -> i32 {
     }
     for arg in &args[1..] {
         if let Some((k, v)) = arg.split_once('=') {
-            shell.aliases.insert(k.to_string(), v.trim_matches('"').trim_matches('\'').to_string());
+            shell.aliases.insert(
+                k.to_string(),
+                v.trim_matches('"').trim_matches('\'').to_string(),
+            );
         } else if let Some(v) = shell.aliases.get(arg.as_str()) {
             println!("alias {}='{}'", arg, v);
         } else {
@@ -124,7 +141,8 @@ fn builtin_echo(args: &[String]) -> i32 {
     }
     let output = args[start..].join(" ")
         .replace("\\n", "\n")
-        .replace("\\t", "\t");
+        .replace("\\t", "\t")
+        .replace("\\r", "\r");
     if no_newline { print!("{}", output); } else { println!("{}", output); }
     0
 }
@@ -150,30 +168,37 @@ fn builtin_source(shell: &mut Shell, args: &[String]) -> i32 {
     }
 }
 
+fn builtin_clear() -> i32 {
+    // Cross-platform clear screen
+    print!("\x1B[2J\x1B[H");
+    0
+}
+
 fn builtin_help() -> i32 {
     println!(r#"
-╔══════════════════════════════════════════╗
-║        myshell  -  Built-in Commands     ║
-╚══════════════════════════════════════════╝
+╔══════════════════════════════════════════════╗
+║       myshell  —  Built-in Commands          ║
+╚══════════════════════════════════════════════╝
 
-  cd [dir]          Change directory (- for previous)
+  cd [dir]          Change directory  (- for previous, ~ for home)
   pwd               Print working directory
-  echo [-n] [args]  Print text
-  export [VAR=VAL]  Set/show environment variables
+  echo [-n] [args]  Print text  (\n \t supported)
+  export [VAR=VAL]  Set or show environment variables
   unset VAR         Remove environment variable
-  alias [k=v]       Set/show aliases
+  alias [k=v]       Set or show aliases
   unalias NAME      Remove alias
   history           Show command history
-  source FILE       Execute commands from file
+  source FILE       Execute commands from a file
+  clear / cls       Clear the screen
   jobs              List background jobs
   help              Show this help
   exit              Exit myshell
 
   Operators:
-    |   pipe         &&  and        ||  or
-    ;   sequence     &   background
-    >   stdout       >>  append     <   stdin
-    2>  stderr       2>&1  merge stderr
+    |    pipe          &&   and         ||   or
+    ;    sequence      &    background
+    >    stdout        >>   append      <    stdin
+    2>   stderr        2>&1 merge stderr into stdout
 "#);
     0
 }

@@ -8,8 +8,6 @@ name = "new_R_Shell"
 path = "src/main.rs"
 
 [dependencies]
-nix = { version = "0.27", features = ["process", "signal", "fs", "term"] }
-libc = "0.2"
 anyhow = "1"
 thiserror = "1"
 reedline = "0.30"
@@ -20,3 +18,13 @@ toml = "0.8"
 dirs = "5"
 glob = "0.3"
 nu-ansi-term = "0.50"
+
+[profile.release]
+opt-level = 3
+strip = true
+
+# Windows: show a console window (change to "windows" to hide it for pure GUI)
+[package.metadata]
+# To build for Windows from Linux:
+# cargo install cargo-xwin
+# cargo xwin build --release --target x86_64-pc-windows-msvc
