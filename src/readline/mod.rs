@@ -1,4 +1,7 @@
 // src/readline/mod.rs
+use nu-ansi-term::Style;
+// this is correct as-is, no change needed in the .rs file
+
 use reedline::{
     DefaultHinter, FileBackedHistory,
     Reedline, Signal, Prompt, PromptEditMode, PromptHistorySearch,

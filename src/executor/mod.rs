@@ -5,9 +5,9 @@ use crate::parser::ast::{Command, Redirect};
 use crate::shell::Shell;
 use anyhow::Result;
 use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{fork, ForkResult, execvp, pipe, dup2};
+use nix::unistd::{fork, ForkResult, execvp, pipe};
 use std::ffi::CString;
-use std::os::fd::{OwnedFd, BorrowedFd, AsRawFd, FromRawFd};
+use std::os::fd::{AsRawFd, IntoRawFd};
 
 pub fn execute(shell: &mut Shell, cmd: Command) -> Result<()> {
     let code = run(shell, cmd)?;
