@@ -1,9 +1,7 @@
 // src/readline/mod.rs
 use reedline::{
-    DefaultCompleter, DefaultHinter, DefaultValidator, EditCommand,
-    Reedline, ReedlineEvent, Signal, SqliteBackedHistory,
-    default_emacs_keybindings, Emacs, FileBackedHistory,
-    ExampleHighlighter, Prompt, PromptEditMode, PromptHistorySearch,
+    DefaultHinter, FileBackedHistory,
+    Reedline, Signal, Prompt, PromptEditMode, PromptHistorySearch,
     PromptHistorySearchStatus,
 };
 use std::borrow::Cow;
@@ -25,12 +23,18 @@ impl Prompt for MyPrompt {
     fn render_prompt_multiline_indicator(&self) -> Cow<str> {
         Cow::Borrowed("... ")
     }
-    fn render_prompt_history_search_indicator(&self, history_search: PromptHistorySearch) -> Cow<str> {
+    fn render_prompt_history_search_indicator(
+        &self,
+        history_search: PromptHistorySearch,
+    ) -> Cow<str> {
         let indicator = match history_search.status {
             PromptHistorySearchStatus::Passing => "",
             PromptHistorySearchStatus::Failing => "failing ",
         };
-        Cow::Owned(format!("({}reverse-search: {}) ", indicator, history_search.term))
+        Cow::Owned(format!(
+            "({}reverse-search: {}) ",
+            indicator, history_search.term
+        ))
     }
 }
 
@@ -40,14 +44,13 @@ pub struct ShellReadline {
 
 impl ShellReadline {
     pub fn new() -> Self {
-        // History stored in ~/.myshell_history
         let history_path = dirs::home_dir()
             .unwrap_or_default()
             .join(".myshell_history");
 
         let history = Box::new(
             FileBackedHistory::with_file(1000, history_path)
-                .unwrap_or_else(|_| FileBackedHistory::new(1000))
+                .unwrap_or_else(|_| FileBackedHistory::new(1000).expect("history init failed"))
         );
 
         let editor = Reedline::create()

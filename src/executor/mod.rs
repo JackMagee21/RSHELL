@@ -7,8 +7,7 @@ use anyhow::Result;
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::{fork, ForkResult, execvp, pipe, dup2};
 use std::ffi::CString;
-use std::os::unix::io::RawFd;
-use nix::unistd::close;
+use std::os::fd::{OwnedFd, BorrowedFd, AsRawFd, FromRawFd};
 
 pub fn execute(shell: &mut Shell, cmd: Command) -> Result<()> {
     let code = run(shell, cmd)?;
@@ -21,9 +20,7 @@ fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
         Command::Simple { args, redirects, background } => {
             run_simple(shell, args, redirects, background)
         }
-        Command::Pipeline(cmds) => {
-            run_pipeline(shell, cmds)
-        }
+        Command::Pipeline(cmds) => run_pipeline(shell, cmds),
         Command::And(left, right) => {
             let code = run(shell, *left)?;
             if code == 0 { run(shell, *right) } else { Ok(code) }
@@ -39,18 +36,20 @@ fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
     }
 }
 
-fn run_simple(shell: &mut Shell, mut args: Vec<String>, redirects: Vec<Redirect>, background: bool) -> Result<i32> {
+fn run_simple(
+    shell: &mut Shell,
+    mut args: Vec<String>,
+    redirects: Vec<Redirect>,
+    background: bool,
+) -> Result<i32> {
     if args.is_empty() { return Ok(0); }
 
-    // Expand environment variables in args
     for arg in &mut args {
         *arg = expand_vars(shell, arg);
     }
 
-    // Check aliases (only for first arg)
     if let Some(alias_val) = shell.aliases.get(&args[0]).cloned() {
         let alias_args: Vec<String> = alias_val.split_whitespace().map(String::from).collect();
-        // Prevent infinite alias expansion
         if alias_args[0] != args[0] {
             let mut new_args = alias_args;
             new_args.extend(args.into_iter().skip(1));
@@ -58,33 +57,27 @@ fn run_simple(shell: &mut Shell, mut args: Vec<String>, redirects: Vec<Redirect>
         }
     }
 
-    // Try builtins first
     if let Some(code) = builtin::run_builtin(shell, &args) {
         return Ok(code);
     }
 
-    // External command via fork/exec
-    run_external(shell, &args, &redirects, background)
+    run_external(&args, &redirects, background)
 }
 
-fn run_external(shell: &Shell, args: &[String], redirects: &[Redirect], background: bool) -> Result<i32> {
+fn run_external(args: &[String], redirects: &[Redirect], background: bool) -> Result<i32> {
     let c_args: Vec<CString> = args.iter()
         .map(|a| CString::new(a.as_str()).unwrap())
         .collect();
 
     match unsafe { fork() }? {
         ForkResult::Child => {
-            // Apply redirections
             for redirect in redirects {
                 apply_redirect(redirect);
             }
-
-            execvp(&c_args[0], &c_args)
-                .map_err(|e| {
-                    eprintln!("myshell: {}: {}", args[0], e);
-                    std::process::exit(127);
-                })
-                .ok();
+            let _ = execvp(&c_args[0], &c_args).map_err(|e| {
+                eprintln!("myshell: {}: {}", args[0], e);
+                std::process::exit(127);
+            });
             std::process::exit(127);
         }
         ForkResult::Parent { child } => {
@@ -111,25 +104,19 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
     }
 
     let n = cmds.len();
-    let mut pipes: Vec<(RawFd, RawFd)> = Vec::new();
-
-    // Create n-1 pipes
+    // Store as raw i32 fds to sidestep OwnedFd ownership across fork
+    let mut pipe_fds: Vec<(i32, i32)> = Vec::new();
     for _ in 0..n - 1 {
         let (r, w) = pipe()?;
-        pipes.push((r, w));
+        pipe_fds.push((r.into_raw_fd(), w.into_raw_fd()));
     }
 
     let mut child_pids = Vec::new();
 
     for (i, cmd) in cmds.into_iter().enumerate() {
-        let args = match &cmd {
-            Command::Simple { args, .. } => args.clone(),
-            _ => continue, // simplified: only simple cmds in pipeline for now
-        };
-
-        let redirects = match &cmd {
-            Command::Simple { redirects, .. } => redirects.clone(),
-            _ => vec![],
+        let (args, redirects) = match cmd {
+            Command::Simple { args, redirects, .. } => (args, redirects),
+            _ => continue,
         };
 
         let c_args: Vec<CString> = args.iter()
@@ -138,30 +125,28 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
 
         match unsafe { fork() }? {
             ForkResult::Child => {
-                // Set up stdin from previous pipe
-                if i > 0 {
-                    dup2(pipes[i - 1].0, 0).ok();
+                unsafe {
+                    // stdin from previous pipe read-end
+                    if i > 0 {
+                        libc::dup2(pipe_fds[i - 1].0, 0);
+                    }
+                    // stdout to next pipe write-end
+                    if i < n - 1 {
+                        libc::dup2(pipe_fds[i].1, 1);
+                    }
+                    // Close all pipe fds
+                    for &(r, w) in &pipe_fds {
+                        libc::close(r);
+                        libc::close(w);
+                    }
                 }
-                // Set up stdout to next pipe
-                if i < n - 1 {
-                    dup2(pipes[i].1, 1).ok();
-                }
-                // Close all pipe fds
-                for &(r, w) in &pipes {
-                    close(r).ok();
-                    close(w).ok();
-                }
-                // Apply explicit redirects
                 for redirect in &redirects {
                     apply_redirect(redirect);
                 }
-                // Try builtin first in child context (limited)
-                execvp(&c_args[0], &c_args)
-                    .map_err(|e| {
-                        eprintln!("myshell: {}: {}", args[0], e);
-                        std::process::exit(127);
-                    })
-                    .ok();
+                let _ = execvp(&c_args[0], &c_args).map_err(|e| {
+                    eprintln!("myshell: {}: {}", args[0], e);
+                    std::process::exit(127);
+                });
                 std::process::exit(127);
             }
             ForkResult::Parent { child } => {
@@ -171,50 +156,49 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
     }
 
     // Close all pipe fds in parent
-    for (r, w) in pipes {
-        close(r).ok();
-        close(w).ok();
-    }
-
-    // Wait for all children, return last exit code
-    let mut last_code = 0;
-    for pid in child_pids {
-        match waitpid(pid, None)? {
-            WaitStatus::Exited(_, code) => last_code = code,
-            _ => {}
+    for (r, w) in pipe_fds {
+        unsafe {
+            libc::close(r);
+            libc::close(w);
         }
     }
 
+    let mut last_code = 0;
+    for pid in child_pids {
+        if let Ok(WaitStatus::Exited(_, code)) = waitpid(pid, None) {
+            last_code = code;
+        }
+    }
     Ok(last_code)
 }
 
 fn apply_redirect(redirect: &Redirect) {
     use std::fs::OpenOptions;
-    use std::os::unix::io::IntoRawFd;
-
-    match redirect {
-        Redirect::StdoutTo(file) => {
-            if let Ok(f) = OpenOptions::new().write(true).create(true).truncate(true).open(file) {
-                dup2(f.into_raw_fd(), 1).ok();
+    unsafe {
+        match redirect {
+            Redirect::StdoutTo(file) => {
+                if let Ok(f) = OpenOptions::new().write(true).create(true).truncate(true).open(file) {
+                    libc::dup2(f.as_raw_fd(), 1);
+                }
             }
-        }
-        Redirect::StdoutAppend(file) => {
-            if let Ok(f) = OpenOptions::new().write(true).create(true).append(true).open(file) {
-                dup2(f.into_raw_fd(), 1).ok();
+            Redirect::StdoutAppend(file) => {
+                if let Ok(f) = OpenOptions::new().write(true).create(true).append(true).open(file) {
+                    libc::dup2(f.as_raw_fd(), 1);
+                }
             }
-        }
-        Redirect::StdinFrom(file) => {
-            if let Ok(f) = OpenOptions::new().read(true).open(file) {
-                dup2(f.into_raw_fd(), 0).ok();
+            Redirect::StdinFrom(file) => {
+                if let Ok(f) = OpenOptions::new().read(true).open(file) {
+                    libc::dup2(f.as_raw_fd(), 0);
+                }
             }
-        }
-        Redirect::StderrTo(file) => {
-            if let Ok(f) = OpenOptions::new().write(true).create(true).truncate(true).open(file) {
-                dup2(f.into_raw_fd(), 2).ok();
+            Redirect::StderrTo(file) => {
+                if let Ok(f) = OpenOptions::new().write(true).create(true).truncate(true).open(file) {
+                    libc::dup2(f.as_raw_fd(), 2);
+                }
             }
-        }
-        Redirect::StderrToStdout => {
-            dup2(1, 2).ok();
+            Redirect::StderrToStdout => {
+                libc::dup2(1, 2);
+            }
         }
     }
 }
@@ -244,7 +228,7 @@ fn expand_vars(shell: &Shell, s: &str) -> String {
                     chars.next();
                     result.push_str(&shell.last_exit_code.to_string());
                 }
-                Some(&c) if c.is_alphanumeric() || c == '_' => {
+                Some(&ch) if ch.is_alphanumeric() || ch == '_' => {
                     let mut var = String::new();
                     while let Some(&ch) = chars.peek() {
                         if ch.is_alphanumeric() || ch == '_' {
