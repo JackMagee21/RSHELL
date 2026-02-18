@@ -1,16 +1,14 @@
 // src/main.rs
-// myshell - CLI entry point
-
 mod shell;
 mod parser;
 mod executor;
 mod readline;
+mod completion;
 
 use shell::Shell;
 use readline::{ShellReadline, ReadlineError};
 
 fn main() {
-    // Print welcome banner
     println!(
         "\x1b[36m
     ██████╗ ███████╗██╗  ██╗███████╗██╗     ██╗     
@@ -19,19 +17,19 @@ fn main() {
     ██╔══██╗╚════██║██╔══██║██╔══╝  ██║     ██║     
     ██║  ██║███████║██║  ██║███████╗███████╗███████╗
     ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
-\x1b[0m  \x1b[90mType 'help' for commands. Ctrl+D or 'exit' to quit.\x1b[0m
+\x1b[0m  \x1b[90mType 'help' for commands.  Ctrl+C to cancel  Ctrl+D to exit  Ctrl+L to clear\x1b[0m
 "
     );
 
     let mut shell = Shell::new();
-    let mut readline = ShellReadline::new();
 
-    // Load config
     if let Err(e) = shell.load_rc() {
         eprintln!("myshell: warning: failed to load .myshellrc: {e}");
     }
 
-    // REPL
+    // Build readline with completion aware of our shell
+    let mut readline = ShellReadline::new();
+
     loop {
         let prompt = shell.build_prompt();
 
@@ -47,16 +45,22 @@ fn main() {
                     shell.last_exit_code = 1;
                 }
             }
+
+            // ── Ctrl+C ────────────────────────────────────────────
+            // Cancel current input, print a new prompt - do NOT exit
             Err(ReadlineError::Interrupted) => {
-                // Ctrl+C - just show a new prompt
-                println!();
+                println!("^C");
                 shell.last_exit_code = 130;
+                // loop continues → new prompt is shown
             }
+
+            // ── Ctrl+D ────────────────────────────────────────────
+            // EOF - this is the intentional exit
             Err(ReadlineError::Eof) => {
-                // Ctrl+D
                 println!("exit");
-                break;
+                std::process::exit(shell.last_exit_code);
             }
+
             Err(ReadlineError::Other(e)) => {
                 eprintln!("myshell: readline error: {e}");
                 break;
