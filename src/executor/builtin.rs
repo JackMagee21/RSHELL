@@ -20,6 +20,9 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "jobs"           => Some(builtin_jobs(shell)),
         "clear" | "cls"  => Some(builtin_clear()),
         "ls"             => Some(builtin_ls(shell, args)),
+        "true"           => Some(0),
+        "false"          => Some(1),
+        "test" | "["     => Some(builtin_test(args)),
         _                => None,
     };
 
@@ -204,6 +207,50 @@ fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
     }
 
     0
+}
+
+fn builtin_test(args: &[String]) -> i32 {
+    // Strip surrounding [ ] if used as [ condition ]
+    let args: Vec<&str> = args.iter()
+        .map(|s| s.as_str())
+        .filter(|&s| s != "[" && s != "]")
+        .collect();
+
+    // No arguments = false
+    if args.len() <= 1 { return 1; }
+
+    match args.as_slice() {
+        // String tests
+        [_, "-n", s]       => if s.is_empty() { 1 } else { 0 },
+        [_, "-z", s]       => if s.is_empty() { 0 } else { 1 },
+        [_, a, "=",  b]    => if a == b { 0 } else { 1 },
+        [_, a, "!=", b]    => if a != b { 0 } else { 1 },
+
+        // Numeric tests
+        [_, a, "-eq", b]   => compare_nums(a, b, |x,y| x == y),
+        [_, a, "-ne", b]   => compare_nums(a, b, |x,y| x != y),
+        [_, a, "-lt", b]   => compare_nums(a, b, |x,y| x <  y),
+        [_, a, "-le", b]   => compare_nums(a, b, |x,y| x <= y),
+        [_, a, "-gt", b]   => compare_nums(a, b, |x,y| x >  y),
+        [_, a, "-ge", b]   => compare_nums(a, b, |x,y| x >= y),
+
+        // File tests
+        [_, "-f", path]    => if std::path::Path::new(path).is_file() { 0 } else { 1 },
+        [_, "-d", path]    => if std::path::Path::new(path).is_dir()  { 0 } else { 1 },
+        [_, "-e", path]    => if std::path::Path::new(path).exists()  { 0 } else { 1 },
+
+        // Single string (true if non-empty)
+        [_, s]             => if s.is_empty() { 1 } else { 0 },
+
+        _ => { eprintln!("test: unsupported expression"); 1 }
+    }
+}
+
+fn compare_nums(a: &str, b: &str, f: impl Fn(i64, i64) -> bool) -> i32 {
+    match (a.parse::<i64>(), b.parse::<i64>()) {
+        (Ok(x), Ok(y)) => if f(x, y) { 0 } else { 1 },
+        _ => { eprintln!("test: not a number"); 1 }
+    }
 }
 
 fn is_executable(path: &std::path::Path) -> bool {

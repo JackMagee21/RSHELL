@@ -1,4 +1,4 @@
-// src/executor/mod.rs - Cross-platform executor
+// src/executor/mod.rs - Cross-platform executor with if/for/while
 pub mod builtin;
 
 use crate::parser::ast::{Command, Redirect};
@@ -31,7 +31,51 @@ fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
             run(shell, *left)?;
             run(shell, *right)
         }
+
+        // ── if/else ───────────────────────────────────────────
+        Command::If { condition, body, else_body } => {
+            let code = run(shell, *condition)?;
+            if code == 0 {
+                run_block(shell, body)
+            } else if let Some(else_cmds) = else_body {
+                run_block(shell, else_cmds)
+            } else {
+                Ok(0)
+            }
+        }
+
+        // ── for loop ──────────────────────────────────────────
+        Command::For { var, items, body } => {
+            let mut last_code = 0;
+            for item in items {
+                // Set the loop variable
+                shell.env.insert(var.clone(), item.clone());
+                unsafe { std::env::set_var(&var, &item); }
+                last_code = run_block(shell, body.clone())?;
+            }
+            Ok(last_code)
+        }
+
+        // ── while loop ────────────────────────────────────────
+        Command::While { condition, body } => {
+            let mut last_code = 0;
+            loop {
+                let code = run(shell, *condition.clone())?;
+                if code != 0 { break; }
+                last_code = run_block(shell, body.clone())?;
+            }
+            Ok(last_code)
+        }
     }
+}
+
+/// Run a list of commands in sequence, return last exit code
+fn run_block(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
+    let mut last_code = 0;
+    for cmd in cmds {
+        last_code = run(shell, cmd)?;
+    }
+    Ok(last_code)
 }
 
 fn run_simple(
