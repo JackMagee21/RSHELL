@@ -1,4 +1,4 @@
-// src/executor/mod.rs - Cross-platform executor (Windows + Linux)
+// src/executor/mod.rs - Cross-platform executor
 pub mod builtin;
 
 use crate::parser::ast::{Command, Redirect};
@@ -42,12 +42,10 @@ fn run_simple(
 ) -> Result<i32> {
     if args.is_empty() { return Ok(0); }
 
-    // Expand $VARIABLES
     for arg in &mut args {
         *arg = expand_vars(shell, arg);
     }
 
-    // Expand aliases
     if let Some(alias_val) = shell.aliases.get(&args[0]).cloned() {
         let alias_args: Vec<String> = alias_val
             .split_whitespace()
@@ -60,7 +58,6 @@ fn run_simple(
         }
     }
 
-    // Builtins run in-process
     if let Some(code) = builtin::run_builtin(shell, &args) {
         return Ok(code);
     }
@@ -74,35 +71,41 @@ fn run_external(
     redirects: &[Redirect],
     background: bool,
 ) -> Result<i32> {
-    let mut cmd = build_command(args, redirects)?;
+    crossterm::terminal::disable_raw_mode().ok();
 
-    // Inherit environment from shell state
+    let mut cmd = build_command(args, redirects)?;
     cmd.envs(&shell.env);
 
-    if background {
-        // Spawn and don't wait
+    let result = if background {
         match cmd.spawn() {
-            Ok(child) => {
-                println!("[bg] pid {}", child.id());
-                Ok(0)
-            }
+            Ok(child) => { println!("[bg] pid {}", child.id()); Ok(0) }
             Err(e) => {
-                eprintln!("myshell: {}: {}", args[0], e);
-                Ok(1)
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    builtin::command_not_found(&args[0]);
+                } else {
+                    eprintln!("myshell: {}: {}", args[0], e);
+                }
+                Ok(127)
             }
         }
     } else {
         match cmd.status() {
             Ok(status) => Ok(status.code().unwrap_or(0)),
             Err(e) => {
-                eprintln!("myshell: {}: {}", args[0], friendly_error(e));
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    builtin::command_not_found(&args[0]);
+                } else {
+                    eprintln!("myshell: {}: {}", args[0], e);
+                }
                 Ok(127)
             }
         }
-    }
+    };
+
+    crossterm::terminal::enable_raw_mode().ok();
+    result
 }
 
-/// Build a std::process::Command with redirects applied
 fn build_command(args: &[String], redirects: &[Redirect]) -> Result<Proc> {
     let mut cmd = platform_command(&args[0]);
     cmd.args(&args[1..]);
@@ -132,9 +135,6 @@ fn build_command(args: &[String], redirects: &[Redirect]) -> Result<Proc> {
                 cmd.stderr(Stdio::from(f));
             }
             Redirect::StderrToStdout => {
-                // Capture stderr and send to stdout - handled below
-                // For simplicity we use inherit for both here
-                // A full implementation would dup the stdout handle
                 cmd.stderr(Stdio::inherit());
             }
         }
@@ -143,46 +143,35 @@ fn build_command(args: &[String], redirects: &[Redirect]) -> Result<Proc> {
     Ok(cmd)
 }
 
-/// Run a pipeline: cmd1 | cmd2 | cmd3
-/// Uses std::process piping — fully cross-platform
 fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
     if cmds.len() == 1 {
         return run(shell, cmds.into_iter().next().unwrap());
     }
 
-    // Extract simple commands from the pipeline
-    let simple_cmds: Vec<(Vec<String>, Vec<Redirect>)> = cmds
-        .into_iter()
-        .filter_map(|cmd| match cmd {
-            Command::Simple { mut args, redirects, .. } => {
-                // Expand variables in each arg
-                for arg in &mut args {
-                    *arg = expand_vars(shell, arg);
-                }
-                Some((args, redirects))
-            }
-            _ => None,
-        })
-        .collect();
-
-    let n = simple_cmds.len();
+    let n = cmds.len();
     let mut prev_stdout: Option<Stdio> = None;
     let mut children = Vec::new();
 
-    for (i, (args, redirects)) in simple_cmds.into_iter().enumerate() {
+    crossterm::terminal::disable_raw_mode().ok();
+
+    for (i, cmd) in cmds.into_iter().enumerate() {
+        let (args, redirects) = match cmd {
+            Command::Simple { args, redirects, .. } => (args, redirects),
+            _ => continue,
+        };
+
         if args.is_empty() { continue; }
 
-        // Builtins in pipelines: for now just run them (no pipe support for builtins)
-        // A full implementation would redirect builtin stdout to the pipe
-        let mut cmd = build_command(&args, &redirects)?;
+        let mut cmd = match build_command(&args, &redirects) {
+            Ok(c) => c,
+            Err(e) => { eprintln!("myshell: {e}"); continue; }
+        };
         cmd.envs(&shell.env);
 
-        // Hook up stdin from previous command's stdout
         if let Some(prev) = prev_stdout.take() {
             cmd.stdin(prev);
         }
 
-        // If not the last command, pipe stdout to next
         let is_last = i == n - 1;
         if !is_last {
             cmd.stdout(Stdio::piped());
@@ -190,7 +179,6 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
 
         match cmd.spawn() {
             Ok(mut child) => {
-                // Take stdout pipe to feed into next command
                 if !is_last {
                     if let Some(stdout) = child.stdout.take() {
                         prev_stdout = Some(Stdio::from(stdout));
@@ -199,12 +187,15 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
                 children.push(child);
             }
             Err(e) => {
-                eprintln!("myshell: {}: {}", args[0], friendly_error(e));
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    builtin::command_not_found(&args[0]);
+                } else {
+                    eprintln!("myshell: {}: {}", args[0], e);
+                }
             }
         }
     }
 
-    // Wait for all children, return last exit code
     let mut last_code = 0;
     for mut child in children {
         if let Ok(status) = child.wait() {
@@ -212,18 +203,16 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
         }
     }
 
+    crossterm::terminal::enable_raw_mode().ok();
     Ok(last_code)
 }
 
-/// On Windows, wrap commands through cmd.exe for built-in commands like `dir`
-/// On Linux/Mac, run directly
 fn platform_command(program: &str) -> Proc {
     #[cfg(target_os = "windows")]
     {
-        // Check if it's a cmd.exe built-in
         let cmd_builtins = [
-            "dir", "cls", "type", "copy", "del", "move", "ren", "md", "rd",
-            "echo", "set", "path", "ver", "vol", "date", "time",
+            "dir", "cls", "type", "copy", "del", "move",
+            "ren", "md", "rd", "ver", "vol",
         ];
         if cmd_builtins.contains(&program.to_lowercase().as_str()) {
             let mut cmd = Proc::new("cmd");
@@ -238,25 +227,12 @@ fn platform_command(program: &str) -> Proc {
     }
 }
 
-/// Give friendlier error messages
-fn friendly_error(e: std::io::Error) -> String {
-    match e.kind() {
-        std::io::ErrorKind::NotFound => "command not found".to_string(),
-        std::io::ErrorKind::PermissionDenied => "permission denied".to_string(),
-        _ => e.to_string(),
-    }
-}
-
-/// Expand $VARIABLE and ${VARIABLE} references
 fn expand_vars(shell: &Shell, s: &str) -> String {
     let mut result = String::new();
     let mut chars = s.chars().peekable();
 
     while let Some(c) = chars.next() {
-        if c != '$' {
-            result.push(c);
-            continue;
-        }
+        if c != '$' { result.push(c); continue; }
         match chars.peek() {
             Some(&'{') => {
                 chars.next();

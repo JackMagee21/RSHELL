@@ -4,7 +4,7 @@
 use reedline::{
     DefaultHinter, FileBackedHistory, Reedline, ReedlineEvent, Signal,
     Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus,
-    Completer, Suggestion, Span, KeyCode, KeyModifiers, EditCommand,
+    Completer, Suggestion, Span, KeyCode, KeyModifiers, Emacs,
     ReedlineMenu, ColumnarMenu, MenuBuilder,
 };
 use std::borrow::Cow;
@@ -143,7 +143,7 @@ impl ShellReadline {
             .with_history(history)
             .with_completer(Box::new(ShellCompleter))
             .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
-            .with_keybindings(keybindings)
+            .with_edit_mode(Box::new(Emacs::new(keybindings)))
             .with_hinter(Box::new(
                 DefaultHinter::default().with_style(
                     nu_ansi_term::Style::new()

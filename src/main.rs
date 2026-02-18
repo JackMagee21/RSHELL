@@ -27,44 +27,92 @@ fn main() {
         eprintln!("myshell: warning: failed to load .myshellrc: {e}");
     }
 
-    // Build readline with completion aware of our shell
     let mut readline = ShellReadline::new();
 
     loop {
         let prompt = shell.build_prompt();
+        let mut input = String::new();
 
-        match readline.readline(&prompt) {
-            Ok(line) => {
-                let line: String = line.trim().to_string();
-                if line.is_empty() { continue; }
+        // ── Multiline input loop ───────────────────────────────
+        loop {
+            let line_prompt = if input.is_empty() {
+                prompt.clone()
+            } else {
+                // Continuation prompt
+                "\x1b[90m... \x1b[0m".to_string()
+            };
 
-                shell.history.push(line.clone());
+            match readline.readline(&line_prompt) {
+                Ok(line) => {
+                    let line: String = line.trim_end().to_string();
 
-                if let Err(e) = shell.eval(&line) {
-                    eprintln!("\x1b[31mmyshell: {e}\x1b[0m");
-                    shell.last_exit_code = 1;
+                    if !input.is_empty() {
+                        input.push('\n');
+                    }
+                    input.push_str(&line);
+
+                    // Check if input is incomplete (ends with | && || \ )
+                    if is_incomplete(&input) {
+                        continue; // show ... prompt and keep reading
+                    } else {
+                        break; // input is complete, run it
+                    }
+                }
+                Err(ReadlineError::Interrupted) => {
+                    println!("^C");
+                    shell.last_exit_code = 130;
+                    input.clear();
+                    break;
+                }
+                Err(ReadlineError::Eof) => {
+                    println!("exit");
+                    std::process::exit(shell.last_exit_code);
+                }
+                Err(ReadlineError::Other(e)) => {
+                    eprintln!("myshell: readline error: {e}");
+                    std::process::exit(1);
                 }
             }
+        }
 
-            // ── Ctrl+C ────────────────────────────────────────────
-            // Cancel current input, print a new prompt - do NOT exit
-            Err(ReadlineError::Interrupted) => {
-                println!("^C");
-                shell.last_exit_code = 130;
-                // loop continues → new prompt is shown
-            }
+        let input = input.trim().to_string();
+        if input.is_empty() { continue; }
 
-            // ── Ctrl+D ────────────────────────────────────────────
-            // EOF - this is the intentional exit
-            Err(ReadlineError::Eof) => {
-                println!("exit");
-                std::process::exit(shell.last_exit_code);
-            }
+        shell.history.push(input.clone());
 
-            Err(ReadlineError::Other(e)) => {
-                eprintln!("myshell: readline error: {e}");
-                break;
-            }
+        if let Err(e) = shell.eval(&input) {
+            eprintln!("\x1b[31mmyshell: {e}\x1b[0m");
+            shell.last_exit_code = 1;
         }
     }
+}
+
+/// Returns true if the input looks incomplete and needs more lines
+fn is_incomplete(input: &str) -> bool {
+    let trimmed = input.trim_end();
+
+    // Ends with a pipe or logical operator
+    if trimmed.ends_with('|')
+        || trimmed.ends_with("&&")
+        || trimmed.ends_with("||")
+        || trimmed.ends_with('\\')
+    {
+        return true;
+    }
+
+    // Unclosed quotes
+    let mut in_single = false;
+    let mut in_double = false;
+    for ch in trimmed.chars() {
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"'  if !in_single => in_double = !in_double,
+            _ => {}
+        }
+    }
+    if in_single || in_double {
+        return true;
+    }
+
+    false
 }
