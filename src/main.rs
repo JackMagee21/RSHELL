@@ -37,7 +37,7 @@ fn main() {
 
         match readline.readline(&prompt) {
             Ok(line) => {
-                let line = line.trim().to_string();
+                let line: String = line.trim().to_string();
                 if line.is_empty() { continue; }
 
                 shell.history.push(line.clone());

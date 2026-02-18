@@ -1,5 +1,5 @@
 // src/readline/mod.rs
-use nu-ansi-term::Style;
+use nu_ansi_term::Style;
 // this is correct as-is, no change needed in the .rs file
 
 use reedline::{
