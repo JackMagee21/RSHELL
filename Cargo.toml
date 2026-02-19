@@ -18,6 +18,7 @@ toml = "0.8"
 dirs = "5"
 glob = "0.3"
 nu-ansi-term = "0.50"
+libc = "0.2"
 
 [profile.release]
 opt-level = 3
