@@ -121,6 +121,6 @@ pub fn builtin_names() -> &'static [&'static str] {
         "cd", "pwd", "echo", "export", "unset", "alias", "unalias",
         "history", "source", "help", "jobs", "fg", "bg", "kill",
         "clear", "cls", "exit", "quit", "ls", "true", "false",
-        "test", "functions",
+        "test", "functions", "sleep", "mkdir",  // ← add here
     ]
 }

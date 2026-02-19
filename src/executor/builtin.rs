@@ -28,6 +28,7 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "test" | "["      => Some(builtin_test(shell, args)),
         "functions"       => Some(builtin_functions(shell)),
         "sleep"           => Some(builtin_sleep(args)),
+        "mkdir"           => Some(builtin_mkdir(args)),
         _                 => None,
     };
 
@@ -380,6 +381,44 @@ fn format_size(size: u64) -> String {
     else if size >= 1_048_576 { format!("{:.1}M", size as f64 / 1_048_576.0) }
     else if size >= 1024      { format!("{:.1}K", size as f64 / 1024.0) }
     else                      { format!("{}B", size) }
+}
+
+// ── mkdir ─────────────────────────────────────────────────────────────────────
+
+fn builtin_mkdir(args: &[String]) -> i32 {
+    if args.len() < 2 {
+        eprintln!("usage: mkdir [-p] <dir>");
+        return 1;
+    }
+
+    let mut parents = false;
+    let mut dirs = Vec::new();
+
+    for arg in &args[1..] {
+        if arg == "-p" {
+            parents = true;
+        } else {
+            dirs.push(arg);
+        }
+    }
+
+    let mut code = 0;
+    for dir in dirs {
+        let result = if parents {
+            std::fs::create_dir_all(dir)
+        } else {
+            std::fs::create_dir(dir)
+        };
+
+        match result {
+            Ok(_) => println!("created {}", dir),
+            Err(e) => {
+                eprintln!("mkdir: {}: {}", dir, e);
+                code = 1;
+            }
+        }
+    }
+    code
 }
 
 // ── other builtins ────────────────────────────────────────────────────────────
