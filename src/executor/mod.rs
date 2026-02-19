@@ -44,7 +44,6 @@ fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
         Command::For { var, items, body } => {
             let mut last_code = 0;
             for item in items {
-                // Expand variables in item
                 let item = expand_vars(shell, &item);
                 shell.env.insert(var.clone(), item.clone());
                 unsafe { std::env::set_var(&var, &item); }
@@ -62,10 +61,7 @@ fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
             Ok(last_code)
         }
         Command::FunctionDef { name, body } => {
-            shell.functions.insert(name.clone(), crate::shell::ShellFunction {
-                name,
-                body,
-            });
+            shell.functions.insert(name.clone(), crate::shell::ShellFunction { name, body });
             Ok(0)
         }
         Command::FunctionCall { name, args } => {
@@ -82,17 +78,12 @@ fn run_block(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
     Ok(last_code)
 }
 
-/// Run a user-defined function with positional args $1 $2 etc
 fn run_function(shell: &mut Shell, name: &str, args: &[String]) -> Result<i32> {
     let func = match shell.functions.get(name).cloned() {
         Some(f) => f,
-        None => {
-            builtin::command_not_found(name);
-            return Ok(127);
-        }
+        None => { builtin::command_not_found(name); return Ok(127); }
     };
 
-    // Save and set positional parameters
     let old_args: Vec<(String, Option<String>)> = (1..=9).map(|i| {
         let key = i.to_string();
         let old = shell.env.get(&key).cloned();
@@ -105,21 +96,16 @@ fn run_function(shell: &mut Shell, name: &str, args: &[String]) -> Result<i32> {
         unsafe { std::env::set_var(&key, arg); }
     }
 
-    // Run function body
     let mut last_code = 0;
     for line in &func.body {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') { continue; }
         match shell.eval(line) {
             Ok(_) => last_code = shell.last_exit_code,
-            Err(e) => {
-                eprintln!("myshell: function {}: {}", name, e);
-                last_code = 1;
-            }
+            Err(e) => { eprintln!("myshell: function {}: {}", name, e); last_code = 1; }
         }
     }
 
-    // Restore positional parameters
     for (key, old_val) in old_args {
         match old_val {
             Some(v) => { shell.env.insert(key.clone(), v.clone()); unsafe { std::env::set_var(&key, v); } }
@@ -138,49 +124,36 @@ fn run_simple(
 ) -> Result<i32> {
     if args.is_empty() { return Ok(0); }
 
-    // Expand arithmetic $((expr)) in all args
     for arg in &mut args {
         *arg = expand_arithmetic(shell, arg);
         *arg = expand_vars(shell, arg);
     }
 
-    // echo with redirect - write directly to file
     if args[0] == "echo" && !redirects.is_empty() {
-    let mut start = 1;
-    let mut no_newline = false;
-    if args.get(1).map(|s| s.as_str()) == Some("-n") {
-        no_newline = true;
-        start = 2;
-    }
-
-    let output = args[start..].join(" ")
-        .replace("\\n", "\n")
-        .replace("\\t", "\t");
-
-    for redirect in &redirects {
-        match redirect {
-            Redirect::StdoutTo(file) => {
-                let content = if no_newline { output.clone() } else { format!("{}\n", output) };
-                return Ok(std::fs::write(file, content).map(|_| 0).unwrap_or(1));
+        let mut start = 1;
+        let mut no_newline = false;
+        if args.get(1).map(|s| s.as_str()) == Some("-n") { no_newline = true; start = 2; }
+        let output = args[start..].join(" ").replace("\\n", "\n").replace("\\t", "\t");
+        for redirect in &redirects {
+            match redirect {
+                Redirect::StdoutTo(file) => {
+                    let content = if no_newline { output.clone() } else { format!("{}\n", output) };
+                    return Ok(std::fs::write(file, content).map(|_| 0).unwrap_or(1));
+                }
+                Redirect::StdoutAppend(file) => {
+                    use std::io::Write;
+                    let content = if no_newline { output.clone() } else { format!("{}\n", output) };
+                    let mut f = OpenOptions::new().append(true).create(true).open(file)?;
+                    f.write_all(content.as_bytes())?;
+                    return Ok(0);
+                }
+                _ => {}
             }
-            Redirect::StdoutAppend(file) => {
-                use std::io::Write;
-                let content = if no_newline { output.clone() } else { format!("{}\n", output) };
-                let mut f = OpenOptions::new().append(true).create(true).open(file)?;
-                f.write_all(content.as_bytes())?;
-                return Ok(0);
-            }
-            _ => {}
         }
     }
-    }
 
-    // Expand aliases
     if let Some(alias_val) = shell.aliases.get(&args[0]).cloned() {
-        let alias_args: Vec<String> = alias_val
-            .split_whitespace()
-            .map(String::from)
-            .collect();
+        let alias_args: Vec<String> = alias_val.split_whitespace().map(String::from).collect();
         if alias_args[0] != args[0] {
             let mut new_args = alias_args;
             new_args.extend(args.into_iter().skip(1));
@@ -188,14 +161,12 @@ fn run_simple(
         }
     }
 
-    // Check if it's a user-defined function
     if shell.functions.contains_key(&args[0]) {
         let name = args[0].clone();
         let func_args = args[1..].to_vec();
         return run_function(shell, &name, &func_args);
     }
 
-    // Try builtins
     if let Some(code) = builtin::run_builtin(shell, &args) {
         return Ok(code);
     }
@@ -218,11 +189,8 @@ fn run_external(
         match cmd.spawn() {
             Ok(child) => { println!("[bg] pid {}", child.id()); Ok(0) }
             Err(e) => {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    builtin::command_not_found(&args[0]);
-                } else {
-                    eprintln!("myshell: {}: {}", args[0], e);
-                }
+                if e.kind() == std::io::ErrorKind::NotFound { builtin::command_not_found(&args[0]); }
+                else { eprintln!("myshell: {}: {}", args[0], e); }
                 Ok(127)
             }
         }
@@ -230,11 +198,8 @@ fn run_external(
         match cmd.status() {
             Ok(status) => Ok(status.code().unwrap_or(0)),
             Err(e) => {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    builtin::command_not_found(&args[0]);
-                } else {
-                    eprintln!("myshell: {}: {}", args[0], e);
-                }
+                if e.kind() == std::io::ErrorKind::NotFound { builtin::command_not_found(&args[0]); }
+                else { eprintln!("myshell: {}: {}", args[0], e); }
                 Ok(127)
             }
         }
@@ -251,15 +216,11 @@ fn build_command(args: &[String], redirects: &[Redirect]) -> Result<Proc> {
     for redirect in redirects {
         match redirect {
             Redirect::StdoutTo(file) => {
-                let f = OpenOptions::new()
-                    .write(true).create(true).truncate(true)
-                    .open(file)?;
+                let f = OpenOptions::new().write(true).create(true).truncate(true).open(file)?;
                 cmd.stdout(Stdio::from(f));
             }
             Redirect::StdoutAppend(file) => {
-                let f = OpenOptions::new()
-                    .write(true).create(true).append(true)
-                    .open(file)?;
+                let f = OpenOptions::new().write(true).create(true).append(true).open(file)?;
                 cmd.stdout(Stdio::from(f));
             }
             Redirect::StdinFrom(file) => {
@@ -267,17 +228,12 @@ fn build_command(args: &[String], redirects: &[Redirect]) -> Result<Proc> {
                 cmd.stdin(Stdio::from(f));
             }
             Redirect::StderrTo(file) => {
-                let f = OpenOptions::new()
-                    .write(true).create(true).truncate(true)
-                    .open(file)?;
+                let f = OpenOptions::new().write(true).create(true).truncate(true).open(file)?;
                 cmd.stderr(Stdio::from(f));
             }
-            Redirect::StderrToStdout => {
-                cmd.stderr(Stdio::inherit());
-            }
+            Redirect::StderrToStdout => { cmd.stderr(Stdio::inherit()); }
         }
     }
-
     Ok(cmd)
 }
 
@@ -297,7 +253,6 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
             Command::Simple { args, redirects, .. } => (args, redirects),
             _ => continue,
         };
-
         if args.is_empty() { continue; }
 
         let mut cmd = match build_command(&args, &redirects) {
@@ -306,14 +261,10 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
         };
         cmd.envs(&shell.env);
 
-        if let Some(prev) = prev_stdout.take() {
-            cmd.stdin(prev);
-        }
+        if let Some(prev) = prev_stdout.take() { cmd.stdin(prev); }
 
         let is_last = i == n - 1;
-        if !is_last {
-            cmd.stdout(Stdio::piped());
-        }
+        if !is_last { cmd.stdout(Stdio::piped()); }
 
         match cmd.spawn() {
             Ok(mut child) => {
@@ -325,11 +276,8 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
                 children.push(child);
             }
             Err(e) => {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    builtin::command_not_found(&args[0]);
-                } else {
-                    eprintln!("myshell: {}: {}", args[0], e);
-                }
+                if e.kind() == std::io::ErrorKind::NotFound { builtin::command_not_found(&args[0]); }
+                else { eprintln!("myshell: {}: {}", args[0], e); }
             }
         }
     }
@@ -348,10 +296,7 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
 fn platform_command(program: &str) -> Proc {
     #[cfg(target_os = "windows")]
     {
-        let cmd_builtins = [
-            "dir", "cls", "type", "copy", "del", "move",
-            "ren", "md", "rd", "ver", "vol",
-        ];
+        let cmd_builtins = ["dir","cls","type","copy","del","move","ren","md","rd","ver","vol"];
         if cmd_builtins.contains(&program.to_lowercase().as_str()) {
             let mut cmd = Proc::new("cmd");
             cmd.args(["/C", program]);
@@ -360,18 +305,14 @@ fn platform_command(program: &str) -> Proc {
         Proc::new(program)
     }
     #[cfg(not(target_os = "windows"))]
-    {
-        Proc::new(program)
-    }
+    Proc::new(program)
 }
 
 pub fn expand_arithmetic_str(shell: &Shell, s: &str) -> String {
-    let s = expand_arithmetic(shell, s);
-    s
+    expand_arithmetic(shell, s)
 }
 
-/// Expand $((expression)) arithmetic
-fn expand_arithmetic(shell: &Shell, s: &str) -> String {
+pub fn expand_arithmetic(shell: &Shell, s: &str) -> String {
     let mut result = String::new();
     let mut rest = s;
 
@@ -379,15 +320,10 @@ fn expand_arithmetic(shell: &Shell, s: &str) -> String {
         result.push_str(&rest[..start]);
         let after = &rest[start + 3..];
         if let Some(end) = after.find("))") {
-            let expr = &after[..end];
-            // First expand variables inside the expression
-            let expr = expand_vars(shell, expr);
+            let expr = expand_vars(shell, &after[..end]);
             match eval_arithmetic(&expr) {
                 Ok(val) => result.push_str(&val.to_string()),
-                Err(e) => {
-                    eprintln!("myshell: arithmetic: {}", e);
-                    result.push_str("0");
-                }
+                Err(e) => { eprintln!("myshell: arithmetic: {}", e); result.push_str("0"); }
             }
             rest = &after[end + 2..];
         } else {
@@ -399,15 +335,8 @@ fn expand_arithmetic(shell: &Shell, s: &str) -> String {
     result
 }
 
-/// Simple arithmetic evaluator: +, -, *, /, %, ()
 fn eval_arithmetic(expr: &str) -> Result<i64> {
-    let expr = expr.trim();
-    parse_expr(expr)
-}
-
-fn parse_expr(s: &str) -> Result<i64> {
-    let s = s.trim();
-    parse_additive(s).map(|(v, _)| v)
+    parse_additive(expr.trim()).map(|(v, _)| v)
 }
 
 fn parse_additive(s: &str) -> Result<(i64, &str)> {
@@ -416,15 +345,11 @@ fn parse_additive(s: &str) -> Result<(i64, &str)> {
         let r = rest.trim_start();
         if r.starts_with('+') {
             let (right, new_rest) = parse_multiplicative(r[1..].trim_start())?;
-            left += right;
-            rest = new_rest;
+            left += right; rest = new_rest;
         } else if r.starts_with('-') {
             let (right, new_rest) = parse_multiplicative(r[1..].trim_start())?;
-            left -= right;
-            rest = new_rest;
-        } else {
-            break;
-        }
+            left -= right; rest = new_rest;
+        } else { break; }
     }
     Ok((left, rest))
 }
@@ -435,21 +360,16 @@ fn parse_multiplicative(s: &str) -> Result<(i64, &str)> {
         let r = rest.trim_start();
         if r.starts_with('*') {
             let (right, new_rest) = parse_unary(r[1..].trim_start())?;
-            left *= right;
-            rest = new_rest;
+            left *= right; rest = new_rest;
         } else if r.starts_with('/') {
             let (right, new_rest) = parse_unary(r[1..].trim_start())?;
             if right == 0 { anyhow::bail!("division by zero"); }
-            left /= right;
-            rest = new_rest;
+            left /= right; rest = new_rest;
         } else if r.starts_with('%') {
             let (right, new_rest) = parse_unary(r[1..].trim_start())?;
             if right == 0 { anyhow::bail!("modulo by zero"); }
-            left %= right;
-            rest = new_rest;
-        } else {
-            break;
-        }
+            left %= right; rest = new_rest;
+        } else { break; }
     }
     Ok((left, rest))
 }
@@ -471,19 +391,12 @@ fn parse_primary(s: &str) -> Result<(i64, &str)> {
     if s.starts_with('(') {
         let (val, rest) = parse_additive(s[1..].trim_start())?;
         let rest = rest.trim_start();
-        if rest.starts_with(')') {
-            Ok((val, &rest[1..]))
-        } else {
-            anyhow::bail!("expected closing )");
-        }
+        if rest.starts_with(')') { Ok((val, &rest[1..])) }
+        else { anyhow::bail!("expected closing )"); }
     } else {
-        // Read number
         let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
-        if end == 0 {
-            anyhow::bail!("expected number, got: {}", s);
-        }
-        let num: i64 = s[..end].parse()?;
-        Ok((num, &s[end..]))
+        if end == 0 { anyhow::bail!("expected number, got: {}", s); }
+        Ok((s[..end].parse()?, &s[end..]))
     }
 }
 
@@ -503,17 +416,12 @@ pub fn expand_vars(shell: &Shell, s: &str) -> String {
                 }
                 result.push_str(&lookup_var(shell, &var));
             }
-            Some(&'?') => {
-                chars.next();
-                result.push_str(&shell.last_exit_code.to_string());
-            }
+            Some(&'?') => { chars.next(); result.push_str(&shell.last_exit_code.to_string()); }
             Some(&ch) if ch.is_alphanumeric() || ch == '_' => {
                 let mut var = String::new();
                 while let Some(&ch) = chars.peek() {
-                    if ch.is_alphanumeric() || ch == '_' {
-                        var.push(ch);
-                        chars.next();
-                    } else { break; }
+                    if ch.is_alphanumeric() || ch == '_' { var.push(ch); chars.next(); }
+                    else { break; }
                 }
                 result.push_str(&lookup_var(shell, &var));
             }
@@ -524,8 +432,7 @@ pub fn expand_vars(shell: &Shell, s: &str) -> String {
 }
 
 fn lookup_var(shell: &Shell, name: &str) -> String {
-    shell.env.get(name)
-        .cloned()
+    shell.env.get(name).cloned()
         .or_else(|| std::env::var(name).ok())
         .unwrap_or_default()
 }
