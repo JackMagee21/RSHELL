@@ -1,21 +1,15 @@
-<p align="center">
+## What is RSHELL?
 
-'''
- ██████╗ ███████╗██╗  ██╗███████╗██╗     ██╗     
- ██╔══██╗██╔════╝██║  ██║██╔════╝██║     ██║     
- ██████╔╝███████╗███████║█████╗  ██║     ██║     
- ██╔══██╗╚════██║██╔══██║██╔══╝  ██║     ██║     
- ██║  ██║███████║██║  ██║███████╗███████╗███████╗
- ╚═╝  ╚═╝╚══════╝╚═╝ ╚═╝╚══════╝╚══════╝╚═══════╝
-'''
+up with Windows PowerShell and wanted something that felt like a real Linux terminal, so I built one.
 
-I was fed up with windows powershell and i wanted something that was like a linux terminal, so i made one: RSHELL! a shell that runs on:
+RShell is a shell written from scratch in Rust with no bloat (not 100% bout that), no config files to wrestle with, and built-in commands that actually work the way you'd expect coming from bash.
 
-  windows: ✅
-  linux (distro wise i only know runs on ubuntu so far but should be fine on other distros): ✅
-  Mac: ¯\(ツ)/¯ soz
-
-for now its a load of AI slop but im here! so more will be done
+**Platform support:**
+| Platform | Status |
+|----------|--------|
+| Windows | ✅ Works great |
+| Linux (Ubuntu tested, others should be fine) | ✅ Works great |
+| macOS | ¯\\\_(ツ)\_/¯ probably works, untested |
 
 | Category | Commands |
 |----------|----------|
