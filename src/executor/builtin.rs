@@ -30,6 +30,10 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "sleep"           => Some(builtin_sleep(args)),
         "mkdir"           => Some(builtin_mkdir(args)),
         "touch"           => Some(builtin_touch(args)),
+        "rm"              => Some(builtin_rm(args)),
+        "cp"              => Some(builtin_cp(args)),
+        "mv"              => Some(builtin_mv(args)),
+        "cat"             => Some(builtin_cat(args)),
         _                 => None,
     };
 
@@ -425,6 +429,195 @@ fn builtin_mkdir(args: &[String]) -> i32 {
             Ok(_) => println!("created {}", dir),
             Err(e) => {
                 eprintln!("mkdir: {}: {}", dir, e);
+                code = 1;
+            }
+        }
+    }
+    code
+}
+
+// ── rm, cp, mv, cat ────────────────────────────────────────────────────────────────────────
+
+fn builtin_rm(args: &[String]) -> i32 {
+    if args.len() < 2 {
+        eprintln!("usage: rm [-rf] <file> [file2 ...]");
+        return 1;
+    }
+
+    let mut recursive = false;
+    let mut force = false;
+    let mut targets = Vec::new();
+
+    for arg in &args[1..] {
+        if arg.starts_with('-') {
+            for ch in arg.chars().skip(1) {
+                match ch {
+                    'r' | 'R' => recursive = true,
+                    'f'       => force = true,
+                    _         => {}
+                }
+            }
+        } else {
+            targets.push(arg);
+        }
+    }
+
+    let mut code = 0;
+    for target in targets {
+        let path = std::path::Path::new(target);
+
+        if !path.exists() {
+            if !force {
+                eprintln!("rm: {}: no such file or directory", target);
+                code = 1;
+            }
+            continue;
+        }
+
+        let result = if path.is_dir() {
+            if recursive {
+                std::fs::remove_dir_all(path)
+            } else {
+                eprintln!("rm: {}: is a directory (use -r to remove)", target);
+                code = 1;
+                continue;
+            }
+        } else {
+            std::fs::remove_file(path)
+        };
+
+        if let Err(e) = result {
+            eprintln!("rm: {}: {}", target, e);
+            code = 1;
+        }
+    }
+    code
+}
+
+fn builtin_cp(args: &[String]) -> i32 {
+    if args.len() < 3 {
+        eprintln!("usage: cp [-r] <source> <dest>");
+        return 1;
+    }
+
+    let mut recursive = false;
+    let mut files = Vec::new();
+
+    for arg in &args[1..] {
+        if arg == "-r" || arg == "-R" || arg == "-rf" || arg == "-fr" {
+            recursive = true;
+        } else {
+            files.push(arg.as_str());
+        }
+    }
+
+    if files.len() < 2 {
+        eprintln!("cp: missing destination");
+        return 1;
+    }
+
+    let dest = std::path::Path::new(files[files.len() - 1]);
+    let sources = &files[..files.len() - 1];
+
+    let mut code = 0;
+    for src in sources {
+        let src_path = std::path::Path::new(src);
+
+        if !src_path.exists() {
+            eprintln!("cp: {}: no such file or directory", src);
+            code = 1;
+            continue;
+        }
+
+        // Work out actual destination path
+        let actual_dest = if dest.is_dir() {
+            let filename = src_path.file_name().unwrap_or_default();
+            dest.join(filename)
+        } else {
+            dest.to_path_buf()
+        };
+
+        let result = if src_path.is_dir() {
+            if recursive {
+                copy_dir_all(src_path, &actual_dest)
+            } else {
+                eprintln!("cp: {}: is a directory (use -r to copy)", src);
+                code = 1;
+                continue;
+            }
+        } else {
+            std::fs::copy(src_path, &actual_dest).map(|_| ())
+        };
+
+        if let Err(e) = result {
+            eprintln!("cp: {}: {}", src, e);
+            code = 1;
+        }
+    }
+    code
+}
+
+/// Recursively copy a directory
+fn copy_dir_all(src: &std::path::Path, dest: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dest)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let dest_path = dest.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &dest_path)?;
+        } else {
+            std::fs::copy(entry.path(), dest_path)?;
+        }
+    }
+    Ok(())
+}
+
+fn builtin_mv(args: &[String]) -> i32 {
+    if args.len() < 3 {
+        eprintln!("usage: mv <source> <dest>");
+        return 1;
+    }
+
+    let dest = std::path::Path::new(&args[args.len() - 1]);
+    let sources = &args[1..args.len() - 1];
+
+    let mut code = 0;
+    for src in sources {
+        let src_path = std::path::Path::new(src);
+
+        if !src_path.exists() {
+            eprintln!("mv: {}: no such file or directory", src);
+            code = 1;
+            continue;
+        }
+
+        let actual_dest = if dest.is_dir() {
+            let filename = src_path.file_name().unwrap_or_default();
+            dest.join(filename)
+        } else {
+            dest.to_path_buf()
+        };
+
+        if let Err(e) = std::fs::rename(src_path, &actual_dest) {
+            eprintln!("mv: {}: {}", src, e);
+            code = 1;
+        }
+    }
+    code
+}
+
+fn builtin_cat(args: &[String]) -> i32 {
+    if args.len() < 2 {
+        eprintln!("usage: cat <file> [file2 ...]");
+        return 1;
+    }
+
+    let mut code = 0;
+    for filename in &args[1..] {
+        match std::fs::read_to_string(filename) {
+            Ok(contents) => print!("{}", contents),
+            Err(e) => {
+                eprintln!("cat: {}: {}", filename, e);
                 code = 1;
             }
         }

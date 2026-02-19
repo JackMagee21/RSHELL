@@ -144,6 +144,37 @@ fn run_simple(
         *arg = expand_vars(shell, arg);
     }
 
+    // echo with redirect - write directly to file
+    if args[0] == "echo" && !redirects.is_empty() {
+    let mut start = 1;
+    let mut no_newline = false;
+    if args.get(1).map(|s| s.as_str()) == Some("-n") {
+        no_newline = true;
+        start = 2;
+    }
+
+    let output = args[start..].join(" ")
+        .replace("\\n", "\n")
+        .replace("\\t", "\t");
+
+    for redirect in &redirects {
+        match redirect {
+            Redirect::StdoutTo(file) => {
+                let content = if no_newline { output.clone() } else { format!("{}\n", output) };
+                return Ok(std::fs::write(file, content).map(|_| 0).unwrap_or(1));
+            }
+            Redirect::StdoutAppend(file) => {
+                use std::io::Write;
+                let content = if no_newline { output.clone() } else { format!("{}\n", output) };
+                let mut f = OpenOptions::new().append(true).create(true).open(file)?;
+                f.write_all(content.as_bytes())?;
+                return Ok(0);
+            }
+            _ => {}
+        }
+    }
+    }
+
     // Expand aliases
     if let Some(alias_val) = shell.aliases.get(&args[0]).cloned() {
         let alias_args: Vec<String> = alias_val
