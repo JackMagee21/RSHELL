@@ -1,4 +1,4 @@
-// src/executor/mod.rs - Cross-platform executor with if/for/while
+// src/executor/mod.rs
 pub mod builtin;
 
 use crate::parser::ast::{Command, Redirect};
@@ -31,8 +31,6 @@ fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
             run(shell, *left)?;
             run(shell, *right)
         }
-
-        // ── if/else ───────────────────────────────────────────
         Command::If { condition, body, else_body } => {
             let code = run(shell, *condition)?;
             if code == 0 {
@@ -43,20 +41,17 @@ fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
                 Ok(0)
             }
         }
-
-        // ── for loop ──────────────────────────────────────────
         Command::For { var, items, body } => {
             let mut last_code = 0;
             for item in items {
-                // Set the loop variable
+                // Expand variables in item
+                let item = expand_vars(shell, &item);
                 shell.env.insert(var.clone(), item.clone());
                 unsafe { std::env::set_var(&var, &item); }
                 last_code = run_block(shell, body.clone())?;
             }
             Ok(last_code)
         }
-
-        // ── while loop ────────────────────────────────────────
         Command::While { condition, body } => {
             let mut last_code = 0;
             loop {
@@ -66,15 +61,72 @@ fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
             }
             Ok(last_code)
         }
+        Command::FunctionDef { name, body } => {
+            shell.functions.insert(name.clone(), crate::shell::ShellFunction {
+                name,
+                body,
+            });
+            Ok(0)
+        }
+        Command::FunctionCall { name, args } => {
+            run_function(shell, &name, &args)
+        }
     }
 }
 
-/// Run a list of commands in sequence, return last exit code
 fn run_block(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
     let mut last_code = 0;
     for cmd in cmds {
         last_code = run(shell, cmd)?;
     }
+    Ok(last_code)
+}
+
+/// Run a user-defined function with positional args $1 $2 etc
+fn run_function(shell: &mut Shell, name: &str, args: &[String]) -> Result<i32> {
+    let func = match shell.functions.get(name).cloned() {
+        Some(f) => f,
+        None => {
+            builtin::command_not_found(name);
+            return Ok(127);
+        }
+    };
+
+    // Save and set positional parameters
+    let old_args: Vec<(String, Option<String>)> = (1..=9).map(|i| {
+        let key = i.to_string();
+        let old = shell.env.get(&key).cloned();
+        (key, old)
+    }).collect();
+
+    for (i, arg) in args.iter().enumerate() {
+        let key = (i + 1).to_string();
+        shell.env.insert(key.clone(), arg.clone());
+        unsafe { std::env::set_var(&key, arg); }
+    }
+
+    // Run function body
+    let mut last_code = 0;
+    for line in &func.body {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        match shell.eval(line) {
+            Ok(_) => last_code = shell.last_exit_code,
+            Err(e) => {
+                eprintln!("myshell: function {}: {}", name, e);
+                last_code = 1;
+            }
+        }
+    }
+
+    // Restore positional parameters
+    for (key, old_val) in old_args {
+        match old_val {
+            Some(v) => { shell.env.insert(key.clone(), v.clone()); unsafe { std::env::set_var(&key, v); } }
+            None => { shell.env.remove(&key); unsafe { std::env::remove_var(&key); } }
+        }
+    }
+
     Ok(last_code)
 }
 
@@ -86,10 +138,13 @@ fn run_simple(
 ) -> Result<i32> {
     if args.is_empty() { return Ok(0); }
 
+    // Expand arithmetic $((expr)) in all args
     for arg in &mut args {
+        *arg = expand_arithmetic(shell, arg);
         *arg = expand_vars(shell, arg);
     }
 
+    // Expand aliases
     if let Some(alias_val) = shell.aliases.get(&args[0]).cloned() {
         let alias_args: Vec<String> = alias_val
             .split_whitespace()
@@ -102,6 +157,14 @@ fn run_simple(
         }
     }
 
+    // Check if it's a user-defined function
+    if shell.functions.contains_key(&args[0]) {
+        let name = args[0].clone();
+        let func_args = args[1..].to_vec();
+        return run_function(shell, &name, &func_args);
+    }
+
+    // Try builtins
     if let Some(code) = builtin::run_builtin(shell, &args) {
         return Ok(code);
     }
@@ -271,7 +334,129 @@ fn platform_command(program: &str) -> Proc {
     }
 }
 
-fn expand_vars(shell: &Shell, s: &str) -> String {
+pub fn expand_arithmetic_str(shell: &Shell, s: &str) -> String {
+    let s = expand_arithmetic(shell, s);
+    s
+}
+
+/// Expand $((expression)) arithmetic
+fn expand_arithmetic(shell: &Shell, s: &str) -> String {
+    let mut result = String::new();
+    let mut rest = s;
+
+    while let Some(start) = rest.find("$((") {
+        result.push_str(&rest[..start]);
+        let after = &rest[start + 3..];
+        if let Some(end) = after.find("))") {
+            let expr = &after[..end];
+            // First expand variables inside the expression
+            let expr = expand_vars(shell, expr);
+            match eval_arithmetic(&expr) {
+                Ok(val) => result.push_str(&val.to_string()),
+                Err(e) => {
+                    eprintln!("myshell: arithmetic: {}", e);
+                    result.push_str("0");
+                }
+            }
+            rest = &after[end + 2..];
+        } else {
+            result.push_str("$((");
+            rest = after;
+        }
+    }
+    result.push_str(rest);
+    result
+}
+
+/// Simple arithmetic evaluator: +, -, *, /, %, ()
+fn eval_arithmetic(expr: &str) -> Result<i64> {
+    let expr = expr.trim();
+    parse_expr(expr)
+}
+
+fn parse_expr(s: &str) -> Result<i64> {
+    let s = s.trim();
+    parse_additive(s).map(|(v, _)| v)
+}
+
+fn parse_additive(s: &str) -> Result<(i64, &str)> {
+    let (mut left, mut rest) = parse_multiplicative(s)?;
+    loop {
+        let r = rest.trim_start();
+        if r.starts_with('+') {
+            let (right, new_rest) = parse_multiplicative(r[1..].trim_start())?;
+            left += right;
+            rest = new_rest;
+        } else if r.starts_with('-') {
+            let (right, new_rest) = parse_multiplicative(r[1..].trim_start())?;
+            left -= right;
+            rest = new_rest;
+        } else {
+            break;
+        }
+    }
+    Ok((left, rest))
+}
+
+fn parse_multiplicative(s: &str) -> Result<(i64, &str)> {
+    let (mut left, mut rest) = parse_unary(s)?;
+    loop {
+        let r = rest.trim_start();
+        if r.starts_with('*') {
+            let (right, new_rest) = parse_unary(r[1..].trim_start())?;
+            left *= right;
+            rest = new_rest;
+        } else if r.starts_with('/') {
+            let (right, new_rest) = parse_unary(r[1..].trim_start())?;
+            if right == 0 { anyhow::bail!("division by zero"); }
+            left /= right;
+            rest = new_rest;
+        } else if r.starts_with('%') {
+            let (right, new_rest) = parse_unary(r[1..].trim_start())?;
+            if right == 0 { anyhow::bail!("modulo by zero"); }
+            left %= right;
+            rest = new_rest;
+        } else {
+            break;
+        }
+    }
+    Ok((left, rest))
+}
+
+fn parse_unary(s: &str) -> Result<(i64, &str)> {
+    let s = s.trim_start();
+    if s.starts_with('-') {
+        let (val, rest) = parse_primary(s[1..].trim_start())?;
+        Ok((-val, rest))
+    } else if s.starts_with('+') {
+        parse_primary(s[1..].trim_start())
+    } else {
+        parse_primary(s)
+    }
+}
+
+fn parse_primary(s: &str) -> Result<(i64, &str)> {
+    let s = s.trim_start();
+    if s.starts_with('(') {
+        let (val, rest) = parse_additive(s[1..].trim_start())?;
+        let rest = rest.trim_start();
+        if rest.starts_with(')') {
+            Ok((val, &rest[1..]))
+        } else {
+            anyhow::bail!("expected closing )");
+        }
+    } else {
+        // Read number
+        let end = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+        if end == 0 {
+            anyhow::bail!("expected number, got: {}", s);
+        }
+        let num: i64 = s[..end].parse()?;
+        Ok((num, &s[end..]))
+    }
+}
+
+pub fn expand_vars(shell: &Shell, s: &str) -> String {
     let mut result = String::new();
     let mut chars = s.chars().peekable();
 
