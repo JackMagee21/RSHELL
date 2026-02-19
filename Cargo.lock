@@ -320,6 +320,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "glob",
+ "libc",
  "nu-ansi-term",
  "reedline",
  "serde",
