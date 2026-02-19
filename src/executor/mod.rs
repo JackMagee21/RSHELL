@@ -129,6 +129,8 @@ fn run_simple(
         *arg = expand_vars(shell, arg);
     }
 
+    args = crate::glob::expand_args(args);
+
     if args[0] == "echo" && !redirects.is_empty() {
         let mut start = 1;
         let mut no_newline = false;

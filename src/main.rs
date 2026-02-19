@@ -4,6 +4,7 @@ mod parser;
 mod executor;
 mod readline;
 mod completion;
+mod glob;
 
 use shell::Shell;
 use readline::{ShellReadline, ReadlineError};

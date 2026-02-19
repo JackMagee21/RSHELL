@@ -2,10 +2,19 @@
 use crate::shell::Shell;
 use super::util::{strip_ansi_len, format_size, color_name};
 
+fn normalise_str(s: &str) -> String {
+    let s = s.trim_start_matches("\\\\?\\");
+    s.replace('\\', "/")
+}
+
+fn normalise_cwd(p: &std::path::Path) -> std::path::PathBuf {
+    std::path::PathBuf::from(normalise_str(&p.display().to_string()))
+}
+
 pub fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
     let mut show_hidden = false;
     let mut long_format = false;
-    let mut target = shell.cwd.clone();
+    let mut targets: Vec<std::path::PathBuf> = Vec::new();
 
     for arg in &args[1..] {
         if arg.starts_with('-') {
@@ -13,60 +22,85 @@ pub fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
                 match ch { 'a' | 'A' => show_hidden = true, 'l' => long_format = true, _ => {} }
             }
         } else {
-            target = shell.cwd.join(arg);
+            let joined = shell.cwd.join(arg);
+            targets.push(std::path::PathBuf::from(normalise_str(&joined.display().to_string())));
         }
     }
 
-    let entries = match std::fs::read_dir(&target) {
-        Ok(e) => e,
-        Err(e) => { eprintln!("ls: {}: {}", target.display(), e); return 1; }
-    };
+    // Default to cwd if no targets specified
+    if targets.is_empty() {
+        targets.push(normalise_cwd(&shell.cwd));
+    }
 
-    let mut items: Vec<std::fs::DirEntry> = entries.flatten()
-        .filter(|e| show_hidden || !e.file_name().to_string_lossy().starts_with('.'))
-        .collect();
-
-    items.sort_by(|a, b| {
-        let ad = a.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        let bd = b.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        match (ad, bd) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.file_name().cmp(&b.file_name()),
+    let mut code = 0;
+    for target in &targets {
+        // If it's a plain file just print it, don't try to read_dir it
+        if target.is_file() {
+            let name = target.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| target.display().to_string());
+            if long_format {
+                if let Ok(meta) = target.metadata() {
+                    println!("-  {:>10}  {}", format_size(meta.len()), color_name(&name, false, target));
+                }
+            } else {
+                println!("{}", color_name(&name, false, target));
+            }
+            continue;
         }
-    });
 
-    if long_format {
-        for item in &items {
-            let meta = match item.metadata() { Ok(m) => m, Err(_) => continue };
+        // Directory listing
+        let entries = match std::fs::read_dir(target) {
+            Ok(e) => e,
+            Err(e) => { eprintln!("ls: {}: {}", target.display(), e); code = 1; continue; }
+        };
+
+        let mut items: Vec<std::fs::DirEntry> = entries.flatten()
+            .filter(|e| show_hidden || !e.file_name().to_string_lossy().starts_with('.'))
+            .collect();
+
+        items.sort_by(|a, b| {
+            let ad = a.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let bd = b.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            match (ad, bd) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.file_name().cmp(&b.file_name()),
+            }
+        });
+
+        if long_format {
+            for item in &items {
+                let meta = match item.metadata() { Ok(m) => m, Err(_) => continue };
+                let name = item.file_name().to_string_lossy().to_string();
+                let is_dir = meta.is_dir();
+                println!("{} {:>10}  {}",
+                    if is_dir { "d" } else { "-" },
+                    format_size(meta.len()),
+                    color_name(&name, is_dir, &item.path())
+                );
+            }
+            continue;
+        }
+
+        let names: Vec<String> = items.iter().map(|item| {
             let name = item.file_name().to_string_lossy().to_string();
-            let is_dir = meta.is_dir();
-            println!("{} {:>10}  {}",
-                if is_dir { "d" } else { "-" },
-                format_size(meta.len()),
-                color_name(&name, is_dir, &item.path())
-            );
+            let is_dir = item.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            color_name(&name, is_dir, &item.path())
+        }).collect();
+
+        let max_len = names.iter().map(|n| strip_ansi_len(n)).max().unwrap_or(0);
+        let col_width = (max_len + 2).max(16);
+        let cols = (80usize / col_width).max(1);
+
+        for (i, name) in names.iter().enumerate() {
+            let padding = col_width.saturating_sub(strip_ansi_len(name));
+            print!("{}{}", name, " ".repeat(padding));
+            if (i + 1) % cols == 0 { println!(); }
         }
-        return 0;
+        if !names.is_empty() && names.len() % cols != 0 { println!(); }
     }
-
-    let names: Vec<String> = items.iter().map(|item| {
-        let name = item.file_name().to_string_lossy().to_string();
-        let is_dir = item.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        color_name(&name, is_dir, &item.path())
-    }).collect();
-
-    let max_len = names.iter().map(|n| strip_ansi_len(n)).max().unwrap_or(0);
-    let col_width = (max_len + 2).max(16);
-    let cols = (80usize / col_width).max(1);
-
-    for (i, name) in names.iter().enumerate() {
-        let padding = col_width.saturating_sub(strip_ansi_len(name));
-        print!("{}{}", name, " ".repeat(padding));
-        if (i + 1) % cols == 0 { println!(); }
-    }
-    if !names.is_empty() && names.len() % cols != 0 { println!(); }
-    0
+    code
 }
 
 pub fn builtin_mkdir(args: &[String]) -> i32 {
