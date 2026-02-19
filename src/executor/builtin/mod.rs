@@ -4,6 +4,7 @@ mod fs;
 mod grep;
 mod jobs;
 mod test;
+mod text;
 mod util;
 
 pub use util::command_not_found;
@@ -44,6 +45,12 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
 
         // ── Search ────────────────────────────────────────────
         "grep"            => Some(grep::builtin_grep(args)),
+
+        // ── Text processing ───────────────────────────────────
+        "head"            => Some(text::builtin_head(args)),
+        "tail"            => Some(text::builtin_tail(args)),
+        "wc"              => Some(text::builtin_wc(args)),
+        "env"             => Some(text::builtin_env(args)),
 
         // ── Job control ───────────────────────────────────────
         "jobs"            => Some(jobs::builtin_jobs(shell)),
