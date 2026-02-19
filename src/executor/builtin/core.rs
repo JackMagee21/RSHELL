@@ -74,10 +74,26 @@ pub fn builtin_alias(shell: &mut Shell, args: &[String]) -> i32 {
         for (k, v) in &shell.aliases { println!("alias {}='{}'", k, v); }
         return 0;
     }
+
+    // Rejoin all args after "alias" — handles cases where the shell
+    // splits "myls=ls -la" into ["myls=ls", "-la"]
+    let joined = args[1..].join(" ");
+
+    if let Some((k, v)) = joined.split_once('=') {
+        let k = k.trim().trim_matches('"').trim_matches('\'').to_string();
+        let v = v.trim().trim_matches('"').trim_matches('\'').to_string();
+        if k.is_empty() {
+            eprintln!("alias: invalid syntax");
+            return 1;
+        }
+        shell.aliases.insert(k, v);
+        shell.save_aliases();
+        return 0;
+    }
+
+    // No = found — just show existing alias
     for arg in &args[1..] {
-        if let Some((k, v)) = arg.split_once('=') {
-            shell.aliases.insert(k.to_string(), v.trim_matches('"').trim_matches('\'').to_string());
-        } else if let Some(v) = shell.aliases.get(arg.as_str()) {
+        if let Some(v) = shell.aliases.get(arg.as_str()) {
             println!("alias {}='{}'", arg, v);
         } else {
             eprintln!("alias: {}: not found", arg);

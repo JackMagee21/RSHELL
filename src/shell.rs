@@ -222,6 +222,34 @@ impl Shell {
 
         format!("\x1b[34m{}\x1b[0m{} {} ", short, git_branch, code_indicator)
     }
+
+    pub fn save_aliases(&self) {
+    let rc_path = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".myshellrc");
+
+    let existing = std::fs::read_to_string(&rc_path).unwrap_or_default();
+    let mut lines: Vec<String> = existing
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("alias "))
+        .map(|l| l.to_string())
+        .collect();
+
+    if !self.aliases.is_empty() {
+        lines.push(String::new());
+        lines.push("# aliases".to_string());
+        let mut sorted: Vec<(&String, &String)> = self.aliases.iter().collect();
+        sorted.sort_by_key(|(k, _)| k.as_str());
+        for (k, v) in sorted {
+            lines.push(format!("alias {}='{}'", k, v));
+        }
+    }
+
+    let content = lines.join("\n") + "\n";
+    if let Err(e) = std::fs::write(&rc_path, content) {
+        eprintln!("myshell: warning: could not save aliases: {}", e);
+    }
+}
 }
 
 pub fn parse_function_start(line: &str) -> Option<String> {

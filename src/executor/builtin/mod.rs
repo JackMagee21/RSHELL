@@ -1,5 +1,6 @@
 // src/executor/builtin/mod.rs
 mod core;
+mod find;
 mod fs;
 mod grep;
 mod jobs;
@@ -45,6 +46,7 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
 
         // ── Search ────────────────────────────────────────────
         "grep"            => Some(grep::builtin_grep(args)),
+        "find"            => Some(find::builtin_find(args)),
 
         // ── Text processing ───────────────────────────────────
         "head"            => Some(text::builtin_head(args)),
