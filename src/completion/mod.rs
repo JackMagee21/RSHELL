@@ -1,7 +1,7 @@
 // src/completion/mod.rs
 // Tab completion engine - completes file paths and command names
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Given a partial word, return a list of completions
 pub fn complete(partial: &str, is_first_word: bool) -> Vec<String> {
@@ -9,17 +9,14 @@ pub fn complete(partial: &str, is_first_word: bool) -> Vec<String> {
         return vec![];
     }
 
-    // If it looks like a path (contains / or starts with . or ~), complete as path
     let looks_like_path = partial.contains('/')
         || partial.contains('\\')
         || partial.starts_with('.')
         || partial.starts_with('~');
 
     if looks_like_path || !is_first_word {
-        // Complete file/directory paths
         complete_path(partial)
     } else {
-        // First word = command name: complete from PATH + files
         let mut results = complete_commands(partial);
         results.extend(complete_path(partial));
         results.dedup();
@@ -29,7 +26,6 @@ pub fn complete(partial: &str, is_first_word: bool) -> Vec<String> {
 
 /// Complete file and directory names
 pub fn complete_path(partial: &str) -> Vec<String> {
-    // Expand ~ to home dir
     let expanded = if partial.starts_with('~') {
         let home = dirs::home_dir()
             .map(|h| h.display().to_string())
@@ -39,10 +35,9 @@ pub fn complete_path(partial: &str) -> Vec<String> {
         partial.to_string()
     };
 
-    // Split into directory part and file prefix
     let (dir, prefix) = if expanded.contains('/') {
-        let p = Path::new(&expanded);
-        let dir = p.parent().unwrap_or(Path::new("."));
+        let p = std::path::Path::new(&expanded);
+        let dir = p.parent().unwrap_or(std::path::Path::new("."));
         let prefix = p.file_name()
             .map(|f| f.to_string_lossy().to_string())
             .unwrap_or_default();
@@ -63,12 +58,10 @@ pub fn complete_path(partial: &str) -> Vec<String> {
         if name.starts_with(&prefix) {
             let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
 
-            // Build the completion string
             let completion = if expanded.contains('/') {
                 let base = dir.display().to_string();
                 let sep = if base.ends_with('/') { "" } else { "/" };
                 let trail = if is_dir { "/" } else { "" };
-                // Restore ~ if original started with it
                 let full = format!("{}{}{}{}", base, sep, name, trail);
                 if partial.starts_with('~') {
                     let home = dirs::home_dir()
@@ -79,11 +72,7 @@ pub fn complete_path(partial: &str) -> Vec<String> {
                     full
                 }
             } else {
-                if is_dir {
-                    format!("{}/", name)
-                } else {
-                    name
-                }
+                if is_dir { format!("{}/", name) } else { name }
             };
 
             matches.push(completion);
@@ -104,7 +93,6 @@ pub fn complete_commands(partial: &str) -> Vec<String> {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with(partial) {
-                // Check it's executable (Unix only)
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -131,6 +119,8 @@ pub fn complete_commands(partial: &str) -> Vec<String> {
 pub fn builtin_names() -> &'static [&'static str] {
     &[
         "cd", "pwd", "echo", "export", "unset", "alias", "unalias",
-        "history", "source", "help", "jobs", "clear", "exit", "quit",
+        "history", "source", "help", "jobs", "fg", "bg", "kill",
+        "clear", "cls", "exit", "quit", "ls", "true", "false",
+        "test", "functions",
     ]
 }

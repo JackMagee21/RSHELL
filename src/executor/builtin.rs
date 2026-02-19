@@ -1,5 +1,5 @@
 // src/executor/builtin.rs
-use crate::shell::Shell;
+use crate::shell::{Shell, JobStatus};
 use std::path::PathBuf;
 
 pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
@@ -18,16 +18,160 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "source" | "."    => Some(builtin_source(shell, args)),
         "help"            => Some(builtin_help()),
         "jobs"            => Some(builtin_jobs(shell)),
+        "fg"              => Some(builtin_fg(shell, args)),
+        "bg"              => Some(builtin_bg(shell, args)),
+        "kill"            => Some(builtin_kill(shell, args)),
         "clear" | "cls"   => Some(builtin_clear()),
         "ls"              => Some(builtin_ls(shell, args)),
         "true"            => Some(0),
         "false"           => Some(1),
         "test" | "["      => Some(builtin_test(shell, args)),
         "functions"       => Some(builtin_functions(shell)),
+        "sleep"           => Some(builtin_sleep(args)),
         _                 => None,
     };
 
     result
+}
+
+// ── Job control ───────────────────────────────────────────────────────────────
+
+fn builtin_jobs(shell: &mut Shell) -> i32 {
+    // Reap finished jobs first
+    shell.reap_jobs();
+
+    if shell.jobs.is_empty() {
+        println!("No jobs");
+        return 0;
+    }
+
+    let mut job_list: Vec<_> = shell.jobs.values().collect();
+    job_list.sort_by_key(|j| j.id);
+
+    for job in job_list {
+        let marker = if job.status == JobStatus::Running { "+" } else { "-" };
+        println!("[{}] {} {:10} {}", job.id, marker, job.status.to_string(), job.command);
+    }
+    0
+}
+
+fn builtin_fg(shell: &mut Shell, args: &[String]) -> i32 {
+    // Get job id - default to most recent
+    let job_id = get_job_id(shell, args);
+
+    let (pid, command) = match job_id.and_then(|id| shell.jobs.get(&id)) {
+        Some(job) => (job.pid, job.command.clone()),
+        None => {
+            eprintln!("fg: no such job");
+            return 1;
+        }
+    };
+
+    println!("{}", command);
+
+    #[cfg(unix)]
+    {
+        // Send SIGCONT to resume if stopped
+        unsafe { libc::kill(pid as i32, libc::SIGCONT); }
+
+        // Wait for it to finish
+        let mut status = 0i32;
+        unsafe { libc::waitpid(pid as i32, &mut status, 0); }
+
+        // Remove from jobs
+        if let Some(id) = job_id {
+            shell.jobs.remove(&id);
+        }
+
+        // Return exit code
+        if libc::WIFEXITED(status) {
+            libc::WEXITSTATUS(status)
+        } else {
+            1
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        eprintln!("fg: job control not fully supported on Windows");
+        1
+    }
+}
+
+fn builtin_bg(shell: &mut Shell, args: &[String]) -> i32 {
+    let job_id = get_job_id(shell, args);
+
+    let (pid, command) = match job_id.and_then(|id| shell.jobs.get_mut(&id)) {
+        Some(job) => {
+            job.status = JobStatus::Running;
+            (job.pid, job.command.clone())
+        }
+        None => {
+            eprintln!("bg: no such job");
+            return 1;
+        }
+    };
+
+    #[cfg(unix)]
+    unsafe { libc::kill(pid as i32, libc::SIGCONT); }
+
+    println!("[{}] {}", job_id.unwrap_or(0), command);
+    0
+}
+
+fn builtin_kill(shell: &mut Shell, args: &[String]) -> i32 {
+    if args.len() < 2 {
+        eprintln!("usage: kill [%jobid | pid]");
+        return 1;
+    }
+
+    let target = &args[1];
+
+    // %1 means job id, otherwise treat as pid
+    if target.starts_with('%') {
+        let id: usize = match target[1..].parse() {
+            Ok(n) => n,
+            Err(_) => { eprintln!("kill: invalid job id"); return 1; }
+        };
+        if let Some(job) = shell.jobs.get(&id) {
+            #[cfg(unix)]
+            unsafe { libc::kill(job.pid as i32, libc::SIGTERM); }
+            #[cfg(windows)]
+            eprintln!("kill: not fully supported on Windows");
+            shell.jobs.remove(&id);
+        } else {
+            eprintln!("kill: no such job: {}", id);
+            return 1;
+        }
+    } else {
+        // Direct PID
+        let pid: i32 = match target.parse() {
+            Ok(n) => n,
+            Err(_) => { eprintln!("kill: invalid pid"); return 1; }
+        };
+        #[cfg(unix)]
+        unsafe { libc::kill(pid, libc::SIGTERM); }
+        #[cfg(windows)]
+        {
+            std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/F"])
+                .output()
+                .ok();
+        }
+    }
+    0
+}
+
+/// Get job id from args, defaulting to most recent job
+fn get_job_id(shell: &Shell, args: &[String]) -> Option<usize> {
+    if let Some(arg) = args.get(1) {
+        // %1 or just 1
+        let s = arg.trim_start_matches('%');
+        s.parse().ok()
+    } else {
+        // Most recent job
+        shell.jobs.keys().max().copied()
+    }
 }
 
 // ── command not found ─────────────────────────────────────────────────────────
@@ -44,13 +188,12 @@ fn find_closest_command(cmd: &str) -> Option<String> {
     let mut best: Option<(String, usize)> = None;
 
     let builtins = vec![
-        "cd", "pwd", "echo", "export", "unset", "alias", "unalias",
-        "history", "source", "help", "jobs", "clear", "exit", "ls",
-        "true", "false", "test",
+        "cd","pwd","echo","export","unset","alias","unalias","history",
+        "source","help","jobs","fg","bg","kill","clear","exit","ls",
+        "true","false","test","functions",
     ];
 
     let mut candidates: Vec<String> = builtins.iter().map(|s| s.to_string()).collect();
-
     for dir in path_var.split(':') {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -64,9 +207,7 @@ fn find_closest_command(cmd: &str) -> Option<String> {
         if dist <= 3 {
             match &best {
                 None => best = Some((candidate.clone(), dist)),
-                Some((_, best_dist)) if dist < *best_dist => {
-                    best = Some((candidate.clone(), dist));
-                }
+                Some((_, d)) if dist < *d => best = Some((candidate.clone(), dist)),
                 _ => {}
             }
         }
@@ -78,18 +219,14 @@ fn find_closest_command(cmd: &str) -> Option<String> {
 fn levenshtein(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
-    let m = a.len();
-    let n = b.len();
+    let (m, n) = (a.len(), b.len());
     let mut dp = vec![vec![0usize; n + 1]; m + 1];
     for i in 0..=m { dp[i][0] = i; }
     for j in 0..=n { dp[0][j] = j; }
     for i in 1..=m {
         for j in 1..=n {
-            dp[i][j] = if a[i-1] == b[j-1] {
-                dp[i-1][j-1]
-            } else {
-                1 + dp[i-1][j].min(dp[i][j-1]).min(dp[i-1][j-1])
-            };
+            dp[i][j] = if a[i-1] == b[j-1] { dp[i-1][j-1] }
+                       else { 1 + dp[i-1][j].min(dp[i][j-1]).min(dp[i-1][j-1]) };
         }
     }
     dp[m][n]
@@ -98,65 +235,41 @@ fn levenshtein(a: &str, b: &str) -> usize {
 // ── test / [ ] ────────────────────────────────────────────────────────────────
 
 fn builtin_test(shell: &Shell, args: &[String]) -> i32 {
-    use crate::executor::{expand_vars, expand_arithmetic_str};
-
-    // Expand arithmetic AND variables in all args first
+    use crate::executor::{expand_vars, expand_arithmetic};
     let expanded: Vec<String> = args.iter()
-        .map(|a| {
-            let a = expand_arithmetic_str(shell, a);
-            expand_vars(shell, &a)
-        })
+        .map(|a| { let a = expand_arithmetic(shell, a); expand_vars(shell, &a) })
         .collect();
-
     let args: Vec<&str> = expanded.iter()
         .skip(1)
         .map(|s| s.as_str())
         .filter(|&s| s != "]")
         .collect();
-
     if args.is_empty() { return 1; }
-
     if args[0] == "!" {
-        let inner: Vec<&str> = args[1..].to_vec();
-        return if eval_test(&inner) == 0 { 1 } else { 0 };
+        return if eval_test(&args[1..]) == 0 { 1 } else { 0 };
     }
-
     eval_test(&args)
 }
 
 fn eval_test(args: &[&str]) -> i32 {
     match args {
-        // String tests
-        ["-n", s] => if s.is_empty() { 1 } else { 0 },
-        ["-z", s] => if s.is_empty() { 0 } else { 1 },
-
-        // String comparison - handles quoted strings properly
-        [a, "=",  b] => if a == b { 0 } else { 1 },
-        [a, "==", b] => if a == b { 0 } else { 1 },
-        [a, "!=", b] => if a != b { 0 } else { 1 },
-
-        // Numeric comparison
-        [a, "-eq", b] => compare_nums(a, b, |x, y| x == y),
-        [a, "-ne", b] => compare_nums(a, b, |x, y| x != y),
-        [a, "-lt", b] => compare_nums(a, b, |x, y| x <  y),
-        [a, "-le", b] => compare_nums(a, b, |x, y| x <= y),
-        [a, "-gt", b] => compare_nums(a, b, |x, y| x >  y),
-        [a, "-ge", b] => compare_nums(a, b, |x, y| x >= y),
-
-        // File tests
-        ["-f", path] => if std::path::Path::new(path).is_file()   { 0 } else { 1 },
-        ["-d", path] => if std::path::Path::new(path).is_dir()    { 0 } else { 1 },
-        ["-e", path] => if std::path::Path::new(path).exists()    { 0 } else { 1 },
-        ["-r", path] => if std::fs::metadata(path).map(|m| !m.permissions().readonly()).unwrap_or(false) { 0 } else { 1 },
-        ["-s", path] => if std::fs::metadata(path).map(|m| m.len() > 0).unwrap_or(false) { 0 } else { 1 },
-
-        // Single string — true if non-empty
-        [s] => if s.is_empty() { 1 } else { 0 },
-
-        _ => {
-            eprintln!("test: unsupported expression: {:?}", args);
-            1
-        }
+        ["-n", s]        => if s.is_empty() { 1 } else { 0 },
+        ["-z", s]        => if s.is_empty() { 0 } else { 1 },
+        [a, "=",  b]     => if a == b { 0 } else { 1 },
+        [a, "==", b]     => if a == b { 0 } else { 1 },
+        [a, "!=", b]     => if a != b { 0 } else { 1 },
+        [a, "-eq", b]    => compare_nums(a, b, |x,y| x == y),
+        [a, "-ne", b]    => compare_nums(a, b, |x,y| x != y),
+        [a, "-lt", b]    => compare_nums(a, b, |x,y| x <  y),
+        [a, "-le", b]    => compare_nums(a, b, |x,y| x <= y),
+        [a, "-gt", b]    => compare_nums(a, b, |x,y| x >  y),
+        [a, "-ge", b]    => compare_nums(a, b, |x,y| x >= y),
+        ["-f", p]        => if std::path::Path::new(p).is_file()  { 0 } else { 1 },
+        ["-d", p]        => if std::path::Path::new(p).is_dir()   { 0 } else { 1 },
+        ["-e", p]        => if std::path::Path::new(p).exists()   { 0 } else { 1 },
+        ["-s", p]        => if std::fs::metadata(p).map(|m| m.len() > 0).unwrap_or(false) { 0 } else { 1 },
+        [s]              => if s.is_empty() { 1 } else { 0 },
+        _                => { eprintln!("test: unsupported expression: {:?}", args); 1 }
     }
 }
 
@@ -171,15 +284,12 @@ fn compare_nums(a: &str, b: &str, f: impl Fn(i64, i64) -> bool) -> i32 {
 
 fn builtin_functions(shell: &Shell) -> i32 {
     if shell.functions.is_empty() {
-        println!("No functions defined. Define one with:");
-        println!("  function greet() {{ echo \"hello $1\"; }}");
+        println!("No functions defined.");
         return 0;
     }
     for (name, func) in &shell.functions {
         println!("function {}() {{", name);
-        for line in &func.body {
-            println!("  {}", line);
-        }
+        for line in &func.body { println!("  {}", line); }
         println!("}}");
     }
     0
@@ -195,11 +305,7 @@ fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
     for arg in &args[1..] {
         if arg.starts_with('-') {
             for ch in arg.chars().skip(1) {
-                match ch {
-                    'a' | 'A' => show_hidden = true,
-                    'l'       => long_format = true,
-                    _         => {}
-                }
+                match ch { 'a'|'A' => show_hidden = true, 'l' => long_format = true, _ => {} }
             }
         } else {
             target = shell.cwd.join(arg);
@@ -211,15 +317,14 @@ fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
         Err(e) => { eprintln!("ls: {}: {}", target.display(), e); return 1; }
     };
 
-    let mut items: Vec<std::fs::DirEntry> = entries
-        .flatten()
+    let mut items: Vec<std::fs::DirEntry> = entries.flatten()
         .filter(|e| show_hidden || !e.file_name().to_string_lossy().starts_with('.'))
         .collect();
 
     items.sort_by(|a, b| {
-        let a_dir = a.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        let b_dir = b.file_type().map(|t| t.is_dir()).unwrap_or(false);
-        match (a_dir, b_dir) {
+        let ad = a.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        let bd = b.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        match (ad, bd) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
             _ => a.file_name().cmp(&b.file_name()),
@@ -231,10 +336,11 @@ fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
             let meta = match item.metadata() { Ok(m) => m, Err(_) => continue };
             let name = item.file_name().to_string_lossy().to_string();
             let is_dir = meta.is_dir();
-            let size = meta.len();
-            let type_char = if is_dir { "d" } else { "-" };
-            let name_colored = color_name(&name, is_dir, &item.path());
-            println!("{} {:>10}  {}", type_char, format_size(size), name_colored);
+            println!("{} {:>10}  {}",
+                if is_dir { "d" } else { "-" },
+                format_size(meta.len()),
+                color_name(&name, is_dir, &item.path())
+            );
         }
     } else {
         let names: Vec<String> = items.iter().map(|item| {
@@ -242,43 +348,30 @@ fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
             let is_dir = item.file_type().map(|t| t.is_dir()).unwrap_or(false);
             color_name(&name, is_dir, &item.path())
         }).collect();
-
         let col_width = 24usize;
-        let term_width = 80usize;
-        let cols = (term_width / col_width).max(1);
+        let cols = (80 / col_width).max(1);
         for (i, name) in names.iter().enumerate() {
             print!("{:<width$}", name, width = col_width);
             if (i + 1) % cols == 0 { println!(); }
         }
         if !names.is_empty() && names.len() % cols != 0 { println!(); }
     }
-
     0
 }
 
 fn color_name(name: &str, is_dir: bool, path: &std::path::Path) -> String {
-    if is_dir {
-        format!("\x1b[34m{}/\x1b[0m", name)
-    } else if is_executable(path) {
-        format!("\x1b[32m{}\x1b[0m", name)
-    } else {
-        name.to_string()
-    }
+    if is_dir { format!("\x1b[34m{}/\x1b[0m", name) }
+    else if is_executable(path) { format!("\x1b[32m{}\x1b[0m", name) }
+    else { name.to_string() }
 }
 
 fn is_executable(path: &std::path::Path) -> bool {
-    #[cfg(unix)]
-    {
+    #[cfg(unix)] {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::metadata(path)
-            .map(|m| m.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false)
+        std::fs::metadata(path).map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false)
     }
-    #[cfg(windows)]
-    {
-        path.extension()
-            .map(|e| matches!(e.to_str(), Some("exe") | Some("bat") | Some("cmd")))
-            .unwrap_or(false)
+    #[cfg(windows)] {
+        path.extension().map(|e| matches!(e.to_str(), Some("exe")|Some("bat")|Some("cmd"))).unwrap_or(false)
     }
 }
 
@@ -291,20 +384,33 @@ fn format_size(size: u64) -> String {
 
 // ── other builtins ────────────────────────────────────────────────────────────
 
+fn builtin_sleep(args: &[String]) -> i32 {
+    if args.len() < 2 {
+        eprintln!("usage: sleep <seconds>");
+        return 1;
+    }
+    match args[1].parse::<f64>() {
+        Ok(secs) => {
+            std::thread::sleep(std::time::Duration::from_secs_f64(secs));
+            0
+        }
+        Err(_) => {
+            eprintln!("sleep: invalid time: {}", args[1]);
+            1
+        }
+    }
+}
+
 fn builtin_cd(shell: &mut Shell, args: &[String]) -> i32 {
     let target: PathBuf = match args.get(1).map(|s| s.as_str()) {
-        None | Some("~") => {
-            match dirs::home_dir() {
-                Some(h) => h,
-                None => { eprintln!("cd: cannot find home directory"); return 1; }
-            }
-        }
-        Some("-") => {
-            match &shell.prev_dir {
-                Some(prev) => prev.clone(),
-                None => { eprintln!("cd: no previous directory"); return 1; }
-            }
-        }
+        None | Some("~") => match dirs::home_dir() {
+            Some(h) => h,
+            None => { eprintln!("cd: cannot find home directory"); return 1; }
+        },
+        Some("-") => match &shell.prev_dir {
+            Some(p) => p.clone(),
+            None => { eprintln!("cd: no previous directory"); return 1; }
+        },
         Some(path) => {
             if path.starts_with("~/") || path.starts_with("~\\") {
                 dirs::home_dir().unwrap_or_default().join(&path[2..])
@@ -326,8 +432,7 @@ fn builtin_cd(shell: &mut Shell, args: &[String]) -> i32 {
 }
 
 fn builtin_pwd(shell: &Shell) -> i32 {
-    println!("{}", shell.cwd.display());
-    0
+    println!("{}", shell.cwd.display()); 0
 }
 
 fn builtin_export(shell: &mut Shell, args: &[String]) -> i32 {
@@ -385,13 +490,8 @@ fn builtin_history(shell: &Shell) -> i32 {
 fn builtin_echo(args: &[String]) -> i32 {
     let mut no_newline = false;
     let mut start = 1;
-    if args.get(1).map(|s| s.as_str()) == Some("-n") {
-        no_newline = true;
-        start = 2;
-    }
-    let output = args[start..].join(" ")
-        .replace("\\n", "\n")
-        .replace("\\t", "\t");
+    if args.get(1).map(|s| s.as_str()) == Some("-n") { no_newline = true; start = 2; }
+    let output = args[start..].join(" ").replace("\\n", "\n").replace("\\t", "\t");
     if no_newline { print!("{}", output); } else { println!("{}", output); }
     0
 }
@@ -428,7 +528,7 @@ fn builtin_help() -> i32 {
   cd [dir]           Change directory (- for previous, ~ for home)
   pwd                Print working directory
   ls [-la] [dir]     List directory contents
-  echo [-n] [args]   Print text (\n \t supported)
+  echo [-n] [args]   Print text
   export [VAR=VAL]   Set or show environment variables
   unset VAR          Remove environment variable
   alias [k=v]        Set or show aliases
@@ -436,12 +536,16 @@ fn builtin_help() -> i32 {
   history            Show command history
   source FILE        Execute commands from a file
   clear / cls        Clear the screen
-  jobs               List background jobs
-  functions          List defined functions
-  true / false       Return exit code 0 / 1
-  test <expr>        Test conditions
   help               Show this help
   exit               Exit myshell
+
+  Job Control:
+    jobs             List background jobs
+    fg [%id]         Bring job to foreground
+    bg [%id]         Resume stopped job in background
+    kill [%id|pid]   Kill a job or process
+    cmd &            Run command in background
+    Ctrl+Z           Suspend current command (Linux)
 
   Scripting:
     if test -f file {{ cmd }} else {{ cmd }}
@@ -451,17 +555,8 @@ fn builtin_help() -> i32 {
     echo $((2 + 2 * 3))
 
   Operators:
-    |   pipe    &&  and    ||  or    ;  sequence
-    &   background
-    >   stdout  >>  append  <  stdin  2>  stderr
+    |  pipe   &&  and   ||  or   ;  sequence   &  background
+    >  stdout  >>  append  <  stdin  2>  stderr
 "#);
-    0
-}
-
-fn builtin_jobs(shell: &Shell) -> i32 {
-    if shell.jobs.is_empty() { println!("No background jobs"); }
-    for (id, job) in &shell.jobs {
-        println!("[{}] {} - {}", id, job.pid, job.command);
-    }
     0
 }

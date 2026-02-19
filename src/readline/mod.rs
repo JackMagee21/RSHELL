@@ -1,6 +1,7 @@
 // src/readline/mod.rs
 // Line editor with Ctrl+C, Ctrl+L, and tab completion
 
+
 use reedline::{
     DefaultHinter, FileBackedHistory, Reedline, ReedlineEvent, Signal,
     Prompt, PromptEditMode, PromptHistorySearch, PromptHistorySearchStatus,

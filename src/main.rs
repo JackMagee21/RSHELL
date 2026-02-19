@@ -11,15 +11,19 @@ use readline::{ShellReadline, ReadlineError};
 fn main() {
     println!(
         "\x1b[36m
-    ██████╗ ███████╗██╗  ██╗███████╗██╗     ██╗     
-    ██╔══██╗██╔════╝██║  ██║██╔════╝██║     ██║     
-    ██████╔╝███████╗███████║█████╗  ██║     ██║     
-    ██╔══██╗╚════██║██╔══██║██╔══╝  ██║     ██║     
-    ██║  ██║███████║██║  ██║███████╗███████╗███████╗
-    ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
-\x1b[0m  \x1b[90mType 'help' for commands.  Ctrl+C to cancel  Ctrl+D to exit  Ctrl+L to clear\x1b[0m
+  ███╗   ███╗██╗   ██╗███████╗██╗  ██╗███████╗██╗     ██╗
+  ████╗ ████║╚██╗ ██╔╝██╔════╝██║  ██║██╔════╝██║     ██║
+  ██╔████╔██║ ╚████╔╝ ███████╗███████║█████╗  ██║     ██║
+  ██║╚██╔╝██║  ╚██╔╝  ╚════██║██╔══██║██╔══╝  ██║     ██║
+  ██║ ╚═╝ ██║   ██║   ███████║██║  ██║███████╗███████╗███████╗
+  ╚═╝     ╚═╝   ╚═╝   ╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
+\x1b[0m  \x1b[90mCtrl+C cancel  Ctrl+D exit  Ctrl+Z suspend  Ctrl+L clear\x1b[0m
 "
     );
+
+    // Set up Ctrl+Z signal handler on Unix
+    #[cfg(unix)]
+    setup_signals();
 
     let mut shell = Shell::new();
 
@@ -30,33 +34,26 @@ fn main() {
     let mut readline = ShellReadline::new();
 
     loop {
+        // Check and report any completed background jobs
+        check_background_jobs(&mut shell);
+
         let prompt = shell.build_prompt();
         let mut input = String::new();
 
-        // ── Multiline input loop ───────────────────────────────
         loop {
             let line_prompt = if input.is_empty() {
                 prompt.clone()
             } else {
-                // Continuation prompt
                 "\x1b[90m... \x1b[0m".to_string()
             };
 
             match readline.readline(&line_prompt) {
                 Ok(line) => {
                     let line: String = line.trim_end().to_string();
-
-                    if !input.is_empty() {
-                        input.push('\n');
-                    }
+                    if !input.is_empty() { input.push('\n'); }
                     input.push_str(&line);
-
-                    // Check if input is incomplete (ends with | && || \ )
-                    if is_incomplete(&input) {
-                        continue; // show ... prompt and keep reading
-                    } else {
-                        break; // input is complete, run it
-                    }
+                    if is_incomplete(&input) { continue; }
+                    else { break; }
                 }
                 Err(ReadlineError::Interrupted) => {
                     println!("^C");
@@ -87,11 +84,32 @@ fn main() {
     }
 }
 
-/// Returns true if the input looks incomplete and needs more lines
+/// Check for completed background jobs and notify user
+fn check_background_jobs(shell: &mut Shell) {
+    shell.reap_jobs();
+    let done: Vec<_> = shell.jobs.iter()
+        .filter(|(_, j)| j.status == shell::JobStatus::Done)
+        .map(|(id, j)| (*id, j.command.clone()))
+        .collect();
+
+    for (id, cmd) in done {
+        println!("[{}] Done  {}", id, cmd);
+        shell.jobs.remove(&id);
+    }
+}
+
+/// Set up Unix signal handlers
+#[cfg(unix)]
+fn setup_signals() {
+    unsafe {
+        // Ignore SIGTTOU so we can write to terminal from background
+        libc::signal(libc::SIGTTOU, libc::SIG_IGN);
+        libc::signal(libc::SIGTTIN, libc::SIG_IGN);
+    }
+}
+
 fn is_incomplete(input: &str) -> bool {
     let trimmed = input.trim_end();
-
-    // Ends with a pipe or logical operator
     if trimmed.ends_with('|')
         || trimmed.ends_with("&&")
         || trimmed.ends_with("||")
@@ -99,8 +117,6 @@ fn is_incomplete(input: &str) -> bool {
     {
         return true;
     }
-
-    // Unclosed quotes
     let mut in_single = false;
     let mut in_double = false;
     for ch in trimmed.chars() {
@@ -110,9 +126,5 @@ fn is_incomplete(input: &str) -> bool {
             _ => {}
         }
     }
-    if in_single || in_double {
-        return true;
-    }
-
-    false
+    in_single || in_double
 }
