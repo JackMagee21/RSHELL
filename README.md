@@ -8,8 +8,8 @@ RShell is a shell written from scratch in Rust with no bloat (not 100% bout that
 
 | Platform | Status |
 |----------|--------|
-| Windows | ✅ Works great |
-| Linux (Ubuntu tested, others should be fine) | ✅ Works great |
+| Windows | ✅ Works |
+| Linux (Ubuntu tested, others should be fine) | ✅ Works |
 | macOS | ¯\\\_(ツ)\_/¯ probably works, untested |
 
 **Current commands (as of writing this readme)**
