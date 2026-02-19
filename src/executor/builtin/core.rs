@@ -139,6 +139,119 @@ pub fn builtin_functions(shell: &Shell) -> i32 {
     0
 }
 
+// ── which ─────────────────────────────────────────────────────────────────────
+
+pub fn builtin_which(args: &[String]) -> i32 {
+    if args.len() < 2 { eprintln!("usage: which <command> [command2 ...]"); return 1; }
+
+    let builtins = [
+        "cd","pwd","echo","export","unset","alias","unalias","history",
+        "source","help","jobs","fg","bg","kill","clear","cls","exit","quit",
+        "ls","true","false","test","functions","sleep","touch","mkdir",
+        "rm","cp","mv","cat","which","pushd","popd","dirs","grep",
+    ];
+
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let mut code = 0;
+
+    for name in &args[1..] {
+        if builtins.contains(&name.as_str()) {
+            println!("{}: shell builtin", name);
+            continue;
+        }
+
+        let mut found = false;
+        'outer: for dir in path_var.split(sep) {
+            let base = std::path::Path::new(dir).join(name);
+            let candidates = if cfg!(windows) {
+                vec![base.clone(), std::path::Path::new(dir).join(format!("{}.exe", name))]
+            } else {
+                vec![base]
+            };
+            for candidate in candidates {
+                if candidate.exists() {
+                    println!("{}", candidate.display().to_string().replace('\\', "/"));
+                    found = true;
+                    break 'outer;
+                }
+            }
+        }
+
+        if !found { eprintln!("{}: not found", name); code = 1; }
+    }
+    code
+}
+
+// ── pushd / popd / dirs ───────────────────────────────────────────────────────
+
+pub fn builtin_pushd(shell: &mut Shell, args: &[String]) -> i32 {
+    match args.get(1) {
+        Some(dir) => {
+            shell.dir_stack.push(shell.cwd.clone());
+            let cd_args = vec!["cd".to_string(), dir.clone()];
+            let result = builtin_cd(shell, &cd_args);
+            if result != 0 { shell.dir_stack.pop(); return result; }
+        }
+        None => {
+            match shell.dir_stack.pop() {
+                Some(top) => {
+                    shell.dir_stack.push(shell.cwd.clone());
+                    let dir_str = top.display().to_string();
+                    let cd_args = vec!["cd".to_string(), dir_str];
+                    if builtin_cd(shell, &cd_args) != 0 {
+                        shell.dir_stack.pop();
+                        return 1;
+                    }
+                }
+                None => { eprintln!("pushd: directory stack empty"); return 1; }
+            }
+        }
+    }
+    print_dir_stack(shell);
+    0
+}
+
+pub fn builtin_popd(shell: &mut Shell) -> i32 {
+    match shell.dir_stack.pop() {
+        Some(dir) => {
+            let dir_str = dir.display().to_string();
+            let cd_args = vec!["cd".to_string(), dir_str];
+            let result = builtin_cd(shell, &cd_args);
+            if result == 0 { print_dir_stack(shell); }
+            result
+        }
+        None => { eprintln!("popd: directory stack empty"); 1 }
+    }
+}
+
+pub fn builtin_dirs(shell: &Shell) -> i32 {
+    let home = dirs::home_dir().map(|h| h.display().to_string()).unwrap_or_default();
+    let cwd = shell.cwd.display().to_string();
+    let cwd = if cwd.starts_with(&home) { cwd.replacen(&home, "~", 1) } else { cwd };
+    print!("{}", cwd);
+    for dir in shell.dir_stack.iter().rev() {
+        let d = dir.display().to_string();
+        let d = if d.starts_with(&home) { d.replacen(&home, "~", 1) } else { d };
+        print!("  {}", d);
+    }
+    println!();
+    0
+}
+
+fn print_dir_stack(shell: &Shell) {
+    let home = dirs::home_dir().map(|h| h.display().to_string()).unwrap_or_default();
+    let cwd = shell.cwd.display().to_string();
+    let cwd = if cwd.starts_with(&home) { cwd.replacen(&home, "~", 1) } else { cwd };
+    print!("{}", cwd);
+    for dir in shell.dir_stack.iter().rev() {
+        let d = dir.display().to_string();
+        let d = if d.starts_with(&home) { d.replacen(&home, "~", 1) } else { d };
+        print!("  {}", d);
+    }
+    println!();
+}
+
 pub fn builtin_help() -> i32 {
     println!(r#"
 ╔══════════════════════════════════════════════╗
@@ -156,6 +269,11 @@ pub fn builtin_help() -> i32 {
   history            Show command history
   source FILE        Execute commands from a file
   clear / cls        Clear the screen
+  which CMD          Show path to a command
+  pushd [dir]        Push directory onto stack and cd
+  popd               Pop directory stack and cd back
+  dirs               Show directory stack
+  grep [-rnivc] PAT  Search for pattern in files
   help               Show this help
   exit               Exit myshell
 
@@ -164,15 +282,13 @@ pub fn builtin_help() -> i32 {
     fg [%id]         Bring job to foreground
     bg [%id]         Resume stopped job in background
     kill [%id|pid]   Kill a job or process
-    cmd &            Run command in background
-    Ctrl+Z           Suspend current command (Linux)
+    cmd &            Run in background  Ctrl+Z suspend
 
   Scripting:
-    if test -f file {{ cmd }} else {{ cmd }}
-    for x in a b c; do cmd; done
-    while test $X -lt 10; do cmd; done
-    function foo() {{ cmd; }}
-    echo $((2 + 2 * 3))
+    if / for / while / function
+    echo $((2 + 2))   arithmetic
+    $VAR / $VARNAME     variable expansion
+    *.rs  ?  [abc]    glob patterns
 
   Operators:
     |  pipe   &&  and   ||  or   ;  sequence   &  background

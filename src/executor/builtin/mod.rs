@@ -1,6 +1,7 @@
 // src/executor/builtin/mod.rs
 mod core;
 mod fs;
+mod grep;
 mod jobs;
 mod test;
 mod util;
@@ -27,6 +28,10 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "sleep"           => Some(core::builtin_sleep(args)),
         "functions"       => Some(core::builtin_functions(shell)),
         "help"            => Some(core::builtin_help()),
+        "which"           => Some(core::builtin_which(args)),
+        "pushd"           => Some(core::builtin_pushd(shell, args)),
+        "popd"            => Some(core::builtin_popd(shell)),
+        "dirs"            => Some(core::builtin_dirs(shell)),
 
         // ── Filesystem ────────────────────────────────────────
         "ls"              => Some(fs::builtin_ls(shell, args)),
@@ -36,6 +41,9 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "mv"              => Some(fs::builtin_mv(args)),
         "cat"             => Some(fs::builtin_cat(args)),
         "touch"           => Some(fs::builtin_touch(args)),
+
+        // ── Search ────────────────────────────────────────────
+        "grep"            => Some(grep::builtin_grep(args)),
 
         // ── Job control ───────────────────────────────────────
         "jobs"            => Some(jobs::builtin_jobs(shell)),

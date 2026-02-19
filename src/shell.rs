@@ -44,6 +44,7 @@ pub struct Shell {
     pub last_exit_code: i32,
     pub jobs: HashMap<usize, Job>,
     pub job_counter: usize,
+    pub dir_stack: Vec<PathBuf>,
 }
 
 impl Shell {
@@ -61,6 +62,7 @@ impl Shell {
             last_exit_code: 0,
             jobs: HashMap::new(),
             job_counter: 0,
+            dir_stack: Vec::new(),
         };
 
         shell.aliases.insert("ll".to_string(),  "ls -la".to_string());
