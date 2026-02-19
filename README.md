@@ -1,13 +1,14 @@
 <p align="center">
 
-'''text
+'''
  ██████╗ ███████╗██╗  ██╗███████╗██╗     ██╗     
  ██╔══██╗██╔════╝██║  ██║██╔════╝██║     ██║     
  ██████╔╝███████╗███████║█████╗  ██║     ██║     
  ██╔══██╗╚════██║██╔══██║██╔══╝  ██║     ██║     
  ██║  ██║███████║██║  ██║███████╗███████╗███████╗
  ╚═╝  ╚═╝╚══════╝╚═╝ ╚═╝╚══════╝╚══════╝╚═══════╝
- 
+'''
+
 I was fed up with windows powershell and i wanted something that was like a linux terminal, so i made one: RSHELL! a shell that runs on:
 
   windows: ✅
