@@ -189,28 +189,36 @@ impl Shell {
     }
 
     pub fn build_prompt(&self) -> String {
-        let home = dirs::home_dir()
-            .map(|h| h.display().to_string())
-            .unwrap_or_default();
+    let home = dirs::home_dir()
+        .map(|h| h.display().to_string())
+        .unwrap_or_default();
 
-        let cwd = self.cwd.display().to_string();
-        let cwd = if cwd.starts_with(&home) {
-            cwd.replacen(&home, "~", 1)
-        } else {
-            cwd
-        };
+    // Clean up Windows \\?\ prefix
+    let cwd = self.cwd.display().to_string();
+    let cwd = cwd.trim_start_matches("\\\\?\\").to_string();
 
-        let code_indicator = if self.last_exit_code == 0 {
-            "\x1b[32m❯\x1b[0m"
-        } else {
-            "\x1b[31m❯\x1b[0m"
-        };
+    // Replace home dir with ~
+    let cwd = if cwd.starts_with(&home) {
+        cwd.replacen(&home, "~", 1)
+    } else {
+        cwd
+    };
 
-        let git_branch = get_git_branch()
-            .map(|b| format!(" \x1b[35m({})\x1b[0m", b))
-            .unwrap_or_default();
+    // Only show last 2 parts of path to keep prompt short
+    // e.g. "C:\Users\mtj07\RSHELL\cool" → "RSHELL/cool"
+    let short = shorten_path(&cwd);
 
-        format!("\x1b[34m{}\x1b[0m{} {} ", cwd, git_branch, code_indicator)
+    let code_indicator = if self.last_exit_code == 0 {
+        "\x1b[32m❯\x1b[0m"
+    } else {
+        "\x1b[31m❯\x1b[0m"
+    };
+
+    let git_branch = get_git_branch()
+        .map(|b| format!(" \x1b[35m({})\x1b[0m", b))
+        .unwrap_or_default();
+
+        format!("\x1b[34m{}\x1b[0m{} {} ", short, git_branch, code_indicator)
     }
 }
 
@@ -250,4 +258,19 @@ fn get_git_branch() -> Option<String> {
     } else {
         None
     }
+}
+
+fn shorten_path(path: &str) -> String {
+    // Normalize separators to /
+    let path = path.replace('\\', "/");
+    
+    // Split into parts and take last 2
+    let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    
+    if parts.len() <= 2 {
+        return path.trim_start_matches('/').to_string();
+    }
+    
+    // Show last 2 components
+    parts[parts.len() - 2..].join("/")
 }

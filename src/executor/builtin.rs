@@ -29,6 +29,7 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "functions"       => Some(builtin_functions(shell)),
         "sleep"           => Some(builtin_sleep(args)),
         "mkdir"           => Some(builtin_mkdir(args)),
+        "touch"           => Some(builtin_touch(args)),
         _                 => None,
     };
 
@@ -333,31 +334,41 @@ fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
     });
 
     if long_format {
-        for item in &items {
-            let meta = match item.metadata() { Ok(m) => m, Err(_) => continue };
-            let name = item.file_name().to_string_lossy().to_string();
-            let is_dir = meta.is_dir();
-            println!("{} {:>10}  {}",
-                if is_dir { "d" } else { "-" },
-                format_size(meta.len()),
-                color_name(&name, is_dir, &item.path())
-            );
-        }
-    } else {
-        let names: Vec<String> = items.iter().map(|item| {
-            let name = item.file_name().to_string_lossy().to_string();
-            let is_dir = item.file_type().map(|t| t.is_dir()).unwrap_or(false);
+    for item in &items {
+        let meta = match item.metadata() { Ok(m) => m, Err(_) => continue };
+        let name = item.file_name().to_string_lossy().to_string();
+        let is_dir = meta.is_dir();
+        println!("{} {:>10}  {}",
+            if is_dir { "d" } else { "-" },
+            format_size(meta.len()),
             color_name(&name, is_dir, &item.path())
-        }).collect();
-        let col_width = 24usize;
-        let cols = (80 / col_width).max(1);
-        for (i, name) in names.iter().enumerate() {
-            print!("{:<width$}", name, width = col_width);
-            if (i + 1) % cols == 0 { println!(); }
-        }
-        if !names.is_empty() && names.len() % cols != 0 { println!(); }
+        );
     }
-    0
+    return 0;  // ← add this
+} else {
+    let names: Vec<String> = items.iter().map(|item| {
+        let name = item.file_name().to_string_lossy().to_string();
+        let is_dir = item.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        color_name(&name, is_dir, &item.path())
+    }).collect();
+
+    let max_len = names.iter()
+        .map(|n| strip_ansi_len(n))
+        .max()
+        .unwrap_or(0);
+    let col_width = (max_len + 2).max(16);
+    let term_width = 80usize;
+    let cols = (term_width / col_width).max(1);
+
+    for (i, name) in names.iter().enumerate() {
+        let visible_len = strip_ansi_len(name);
+        let padding = col_width.saturating_sub(visible_len);
+        print!("{}{}", name, " ".repeat(padding));
+        if (i + 1) % cols == 0 { println!(); }
+    }
+    if !names.is_empty() && names.len() % cols != 0 { println!(); }
+}
+0  // ← make sure this is here at the end
 }
 
 fn color_name(name: &str, is_dir: bool, path: &std::path::Path) -> String {
@@ -415,6 +426,35 @@ fn builtin_mkdir(args: &[String]) -> i32 {
             Err(e) => {
                 eprintln!("mkdir: {}: {}", dir, e);
                 code = 1;
+            }
+        }
+    }
+    code
+}
+
+// ── touch ─────────────────────────────────────────────────────────────────────
+
+fn builtin_touch(args: &[String]) -> i32 {
+    if args.len() < 2 {
+        eprintln!("usage: touch <file> [file2 ...]");
+        return 1;
+    }
+
+    let mut code = 0;
+    for filename in &args[1..] {
+        let path = std::path::Path::new(filename);
+
+        if path.exists() {
+            // File exists - just update the modified time
+            match filetime::set_file_mtime(path, filetime::FileTime::now()) {
+                Ok(_) => {}
+                Err(e) => { eprintln!("touch: {}: {}", filename, e); code = 1; }
+            }
+        } else {
+            // Create empty file
+            match std::fs::File::create(path) {
+                Ok(_) => {}
+                Err(e) => { eprintln!("touch: {}: {}", filename, e); code = 1; }
             }
         }
     }
@@ -556,6 +596,18 @@ fn builtin_clear() -> i32 {
     use std::io::Write;
     std::io::stdout().flush().ok();
     0
+}
+
+/// Get visible length of string ignoring ANSI escape codes
+fn strip_ansi_len(s: &str) -> usize {
+    let mut len = 0;
+    let mut in_escape = false;
+    for ch in s.chars() {
+        if ch == '\x1b' { in_escape = true; }
+        else if in_escape && ch.is_ascii_alphabetic() { in_escape = false; }
+        else if !in_escape { len += 1; }
+    }
+    len
 }
 
 fn builtin_help() -> i32 {
