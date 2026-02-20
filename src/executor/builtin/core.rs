@@ -47,6 +47,16 @@ pub fn builtin_echo(args: &[String]) -> i32 {
 }
 
 pub fn builtin_export(shell: &mut Shell, args: &[String]) -> i32 {
+    // Handle set -e / set +e
+    if args.get(1).map(|s| s.as_str()) == Some("-e") {
+        shell.exit_on_error = true;
+        return 0;
+    }
+    if args.get(1).map(|s| s.as_str()) == Some("+e") {
+        shell.exit_on_error = false;
+        return 0;
+    }
+    
     if args.len() == 1 {
         for (k, v) in &shell.env { println!("{}={}", k, v); }
         return 0;

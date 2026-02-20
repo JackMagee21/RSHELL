@@ -19,7 +19,7 @@ pub fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
     for arg in &args[1..] {
         if arg.starts_with('-') {
             for ch in arg.chars().skip(1) {
-                match ch { 'a' | 'A' => show_hidden = true, 'l' => long_format = true, _ => {} }
+                match ch { 'a'|'A' => show_hidden = true, 'l' => long_format = true, _ => {} }
             }
         } else {
             let joined = shell.cwd.join(arg);
@@ -27,17 +27,12 @@ pub fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
         }
     }
 
-    // Default to cwd if no targets specified
-    if targets.is_empty() {
-        targets.push(normalise_cwd(&shell.cwd));
-    }
+    if targets.is_empty() { targets.push(normalise_cwd(&shell.cwd)); }
 
     let mut code = 0;
     for target in &targets {
-        // If it's a plain file just print it, don't try to read_dir it
         if target.is_file() {
-            let name = target.file_name()
-                .map(|n| n.to_string_lossy().to_string())
+            let name = target.file_name().map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| target.display().to_string());
             if long_format {
                 if let Ok(meta) = target.metadata() {
@@ -49,7 +44,6 @@ pub fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
             continue;
         }
 
-        // Directory listing
         let entries = match std::fs::read_dir(target) {
             Ok(e) => e,
             Err(e) => { eprintln!("ls: {}: {}", target.display(), e); code = 1; continue; }
@@ -74,11 +68,8 @@ pub fn builtin_ls(shell: &Shell, args: &[String]) -> i32 {
                 let meta = match item.metadata() { Ok(m) => m, Err(_) => continue };
                 let name = item.file_name().to_string_lossy().to_string();
                 let is_dir = meta.is_dir();
-                println!("{} {:>10}  {}",
-                    if is_dir { "d" } else { "-" },
-                    format_size(meta.len()),
-                    color_name(&name, is_dir, &item.path())
-                );
+                println!("{} {:>10}  {}", if is_dir { "d" } else { "-" },
+                    format_size(meta.len()), color_name(&name, is_dir, &item.path()));
             }
             continue;
         }
@@ -129,7 +120,7 @@ pub fn builtin_rm(args: &[String]) -> i32 {
     for arg in &args[1..] {
         if arg.starts_with('-') {
             for ch in arg.chars().skip(1) {
-                match ch { 'r' | 'R' => recursive = true, 'f' => force = true, _ => {} }
+                match ch { 'r'|'R' => recursive = true, 'f' => force = true, _ => {} }
             }
         } else { targets.push(arg); }
     }
@@ -142,7 +133,7 @@ pub fn builtin_rm(args: &[String]) -> i32 {
         }
         let result = if path.is_dir() {
             if recursive { std::fs::remove_dir_all(path) }
-            else { eprintln!("rm: {}: is a directory (use -r to remove)", target); code = 1; continue; }
+            else { eprintln!("rm: {}: is a directory (use -r)", target); code = 1; continue; }
         } else { std::fs::remove_file(path) };
         if let Err(e) = result { eprintln!("rm: {}: {}", target, e); code = 1; }
     }
@@ -154,21 +145,20 @@ pub fn builtin_cp(args: &[String]) -> i32 {
     let mut recursive = false;
     let mut files = Vec::new();
     for arg in &args[1..] {
-        if arg == "-r" || arg == "-R" || arg == "-rf" || arg == "-fr" { recursive = true; }
+        if matches!(arg.as_str(), "-r"|"-R"|"-rf"|"-fr") { recursive = true; }
         else { files.push(arg.as_str()); }
     }
     if files.len() < 2 { eprintln!("cp: missing destination"); return 1; }
     let dest = std::path::Path::new(files[files.len() - 1]);
-    let sources = &files[..files.len() - 1];
     let mut code = 0;
-    for src in sources {
+    for src in &files[..files.len() - 1] {
         let src_path = std::path::Path::new(src);
         if !src_path.exists() { eprintln!("cp: {}: no such file or directory", src); code = 1; continue; }
         let actual_dest = if dest.is_dir() { dest.join(src_path.file_name().unwrap_or_default()) }
                           else { dest.to_path_buf() };
         let result = if src_path.is_dir() {
             if recursive { copy_dir_all(src_path, &actual_dest) }
-            else { eprintln!("cp: {}: is a directory (use -r to copy)", src); code = 1; continue; }
+            else { eprintln!("cp: {}: is a directory (use -r)", src); code = 1; continue; }
         } else { std::fs::copy(src_path, &actual_dest).map(|_| ()) };
         if let Err(e) = result { eprintln!("cp: {}: {}", src, e); code = 1; }
     }
@@ -210,13 +200,116 @@ pub fn builtin_touch(args: &[String]) -> i32 {
             if let Err(e) = filetime::set_file_mtime(path, filetime::FileTime::now()) {
                 eprintln!("touch: {}: {}", filename, e); code = 1;
             }
-        } else {
-            if let Err(e) = std::fs::File::create(path) {
-                eprintln!("touch: {}: {}", filename, e); code = 1;
-            }
+        } else if let Err(e) = std::fs::File::create(path) {
+            eprintln!("touch: {}: {}", filename, e); code = 1;
         }
     }
     code
+}
+
+pub fn builtin_chmod(args: &[String]) -> i32 {
+    #[cfg(windows)]
+    { eprintln!("chmod: not supported on Windows"); return 1; }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if args.len() < 3 { eprintln!("usage: chmod <mode> <file> [file2 ...]"); return 1; }
+        let mode_str = &args[1];
+        let mut code = 0;
+        for file in &args[2..] {
+            let path = std::path::Path::new(file);
+            if !path.exists() { eprintln!("chmod: {}: no such file or directory", file); code = 1; continue; }
+            let current = match std::fs::metadata(path) {
+                Ok(m) => m.permissions().mode(),
+                Err(e) => { eprintln!("chmod: {}: {}", file, e); code = 1; continue; }
+            };
+            let new_mode = match parse_chmod_mode(mode_str, current) {
+                Some(m) => m,
+                None => { eprintln!("chmod: invalid mode: {}", mode_str); return 1; }
+            };
+            let perms = std::fs::Permissions::from_mode(new_mode);
+            if let Err(e) = std::fs::set_permissions(path, perms) {
+                eprintln!("chmod: {}: {}", file, e); code = 1;
+            }
+        }
+        code
+    }
+}
+
+#[cfg(unix)]
+fn parse_chmod_mode(mode_str: &str, current: u32) -> Option<u32> {
+    // Octal e.g. 755
+    if mode_str.chars().all(|c| c.is_ascii_digit()) {
+        return u32::from_str_radix(mode_str, 8).ok();
+    }
+    // Symbolic e.g. +x, u+x, go-w, a+rx
+    let mut mode = current;
+    for part in mode_str.split(',') {
+        let who_end = part.find(|c: char| matches!(c, '+'|'-'|'=')).unwrap_or(part.len());
+        let (who, rest) = (&part[..who_end], &part[who_end..]);
+        let who = if who.is_empty() { "a" } else { who };
+        if rest.is_empty() { return None; }
+        let op = rest.chars().next()?;
+        let perms_str = &rest[1..];
+        let mut bits: u32 = 0;
+        for c in perms_str.chars() {
+            match c { 'r' => bits |= 4, 'w' => bits |= 2, 'x' => bits |= 1, _ => return None }
+        }
+        for w in who.chars() {
+            let shifts: Vec<u32> = match w {
+                'u' => vec![6], 'g' => vec![3], 'o' => vec![0], 'a' => vec![6,3,0], _ => continue,
+            };
+            for shift in shifts {
+                let shifted = bits << shift;
+                match op {
+                    '+' => mode |= shifted,
+                    '-' => mode &= !shifted,
+                    '=' => { let mask = 7 << shift; mode = (mode & !mask) | shifted; }
+                    _ => return None,
+                }
+            }
+        }
+    }
+    Some(mode)
+}
+
+pub fn builtin_ln(args: &[String]) -> i32 {
+    let mut symbolic = false;
+    let mut force = false;
+    let mut targets = Vec::new();
+
+    for arg in &args[1..] {
+        if arg.starts_with('-') {
+            for ch in arg.chars().skip(1) {
+                match ch { 's' => symbolic = true, 'f' => force = true, _ => {} }
+            }
+        } else { targets.push(arg.clone()); }
+    }
+
+    if targets.len() < 2 { eprintln!("usage: ln [-sf] <target> <link_name>"); return 1; }
+
+    let target = &targets[0];
+    let link = std::path::Path::new(&targets[1]);
+
+    if force && link.exists() {
+        if let Err(e) = std::fs::remove_file(link) { eprintln!("ln: {}", e); return 1; }
+    }
+
+    let result = if symbolic {
+        #[cfg(unix)] { std::os::unix::fs::symlink(target, link) }
+        #[cfg(windows)] {
+            if std::path::Path::new(target).is_dir() {
+                std::os::windows::fs::symlink_dir(target, link)
+            } else {
+                std::os::windows::fs::symlink_file(target, link)
+            }
+        }
+    } else {
+        std::fs::hard_link(target, link)
+    };
+
+    match result { Ok(_) => 0, Err(e) => { eprintln!("ln: {}", e); 1 } }
 }
 
 fn copy_dir_all(src: &std::path::Path, dest: &std::path::Path) -> std::io::Result<()> {

@@ -1,8 +1,9 @@
 // src/executor/builtin/test.rs
 use crate::shell::Shell;
+use crate::executor::expand_arithmetic;
 
 pub fn builtin_test(shell: &Shell, args: &[String]) -> i32 {
-    use crate::executor::{expand_vars, expand_arithmetic};
+    use crate::executor::expand_vars;
     let expanded: Vec<String> = args.iter()
         .map(|a| { let a = expand_arithmetic(shell, a); expand_vars(shell, &a) })
         .collect();

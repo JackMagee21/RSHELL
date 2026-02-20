@@ -12,7 +12,7 @@ RShell is a shell written from scratch in Rust with no bloat (not 100% bout that
 | Linux (Ubuntu tested, others should be fine) | ✅ Works |
 | macOS | ¯\\\_(ツ)\_/¯ probably works, untested |
 
-**Current commands (as of writing this readme)**
+**Current commands (as of writing this readme):**
 | Category | Commands |
 |----------|----------|
 | **Navigation** | `cd`, `pwd`, `pushd`, `popd`, `dirs` |

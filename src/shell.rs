@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use anyhow::Result;
 
+
 pub struct Job {
     pub id: usize,
     pub pid: u32,
@@ -45,6 +46,7 @@ pub struct Shell {
     pub jobs: HashMap<usize, Job>,
     pub job_counter: usize,
     pub dir_stack: Vec<PathBuf>,
+    pub exit_on_error: bool,
 }
 
 impl Shell {
@@ -63,6 +65,7 @@ impl Shell {
             jobs: HashMap::new(),
             job_counter: 0,
             dir_stack: Vec::new(),
+            exit_on_error: false,
         };
 
         shell.aliases.insert("ll".to_string(),  "ls -la".to_string());
@@ -164,7 +167,7 @@ impl Shell {
             return self.parse_inline_function(input, func_name);
         }
 
-        let input = crate::executor::expand_arithmetic_str(self, input);
+        let input = crate::executor::expand_arithmetic(self, input);
         let input = input.trim().to_string();
 
         let ast = crate::parser::parse(&input)?;
@@ -238,10 +241,15 @@ impl Shell {
     if !self.aliases.is_empty() {
         lines.push(String::new());
         lines.push("# aliases".to_string());
-        let mut sorted: Vec<(&String, &String)> = self.aliases.iter().collect();
+        let mut sorted: Vec<(&String, &ShellFunction)> = self.functions.iter().collect();
         sorted.sort_by_key(|(k, _)| k.as_str());
-        for (k, v) in sorted {
-            lines.push(format!("alias {}='{}'", k, v));
+        for (name, func) in sorted {
+        lines.push(format!("function {}() {{", name));
+        for line in &func.body {
+            lines.push(format!("    {}", line));
+        }
+        lines.push("}".to_string());
+        lines.push(String::new());
         }
     }
 
@@ -250,6 +258,49 @@ impl Shell {
         eprintln!("myshell: warning: could not save aliases: {}", e);
     }
 }
+
+pub fn save_functions(&self) {
+    let rc_path = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".myshellrc");
+
+    let existing = std::fs::read_to_string(&rc_path).unwrap_or_default();
+
+    // Strip old function definitions
+    let mut lines: Vec<String> = Vec::new();
+    let mut in_func = false;
+    for line in existing.lines() {
+        if line.starts_with("function ") || line.contains("() {") {
+            in_func = true;
+        }
+        if in_func {
+            if line.trim() == "}" { in_func = false; }
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+
+    // Append current functions
+    if !self.functions.is_empty() {
+        lines.push(String::new());
+        let mut sorted: Vec<(&String, &ShellFunction)> = self.functions.iter().collect();
+        sorted.sort_by_key(|(k, _)| k.as_str());
+        for (name, func) in sorted {
+            lines.push(format!("function {}() {{", name));
+            for line in &func.body {
+                lines.push(format!("    {}", line));
+            }
+            lines.push("}".to_string());
+            lines.push(String::new());
+        }
+    }
+
+    let content = lines.join("\n") + "\n";
+    if let Err(e) = std::fs::write(&rc_path, content) {
+        eprintln!("myshell: warning: could not save functions: {}", e);
+    }
+}
+
 }
 
 pub fn parse_function_start(line: &str) -> Option<String> {

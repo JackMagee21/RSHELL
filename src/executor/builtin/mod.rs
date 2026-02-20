@@ -43,6 +43,8 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "mv"              => Some(fs::builtin_mv(args)),
         "cat"             => Some(fs::builtin_cat(args)),
         "touch"           => Some(fs::builtin_touch(args)),
+        "chmod"           => Some(fs::builtin_chmod(args)),
+        "ln"              => Some(fs::builtin_ln(args)),
 
         // ── Search ────────────────────────────────────────────
         "grep"            => Some(grep::builtin_grep(args)),
@@ -53,6 +55,9 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "tail"            => Some(text::builtin_tail(args)),
         "wc"              => Some(text::builtin_wc(args)),
         "env"             => Some(text::builtin_env(args)),
+        "sort"            => Some(text::builtin_sort(args)),
+        "uniq"            => Some(text::builtin_uniq(args)),
+        "xargs"           => Some(text::builtin_xargs(args)),
 
         // ── Job control ───────────────────────────────────────
         "jobs"            => Some(jobs::builtin_jobs(shell)),

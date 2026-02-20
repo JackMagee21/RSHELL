@@ -13,6 +13,9 @@ pub fn execute(shell: &mut Shell, cmd: Command) -> Result<()> {
     Ok(())
 }
 
+// Public alias so shell.rs can call it
+
+
 fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
     match cmd {
         Command::Simple { args, redirects, background } => {
@@ -62,6 +65,7 @@ fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
         }
         Command::FunctionDef { name, body } => {
             shell.functions.insert(name.clone(), crate::shell::ShellFunction { name, body });
+            shell.save_functions();  // ← add this line
             Ok(0)
         }
         Command::FunctionCall { name, args } => {
@@ -74,6 +78,9 @@ fn run_block(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
     let mut last_code = 0;
     for cmd in cmds {
         last_code = run(shell, cmd)?;
+        if last_code != 0 && shell.exit_on_error {
+            return Ok(last_code);
+        }
     }
     Ok(last_code)
 }
@@ -239,62 +246,6 @@ fn build_command(args: &[String], redirects: &[Redirect]) -> Result<Proc> {
     Ok(cmd)
 }
 
-fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
-    if cmds.len() == 1 {
-        return run(shell, cmds.into_iter().next().unwrap());
-    }
-
-    let n = cmds.len();
-    let mut prev_stdout: Option<Stdio> = None;
-    let mut children = Vec::new();
-
-    crossterm::terminal::disable_raw_mode().ok();
-
-    for (i, cmd) in cmds.into_iter().enumerate() {
-        let (args, redirects) = match cmd {
-            Command::Simple { args, redirects, .. } => (args, redirects),
-            _ => continue,
-        };
-        if args.is_empty() { continue; }
-
-        let mut cmd = match build_command(&args, &redirects) {
-            Ok(c) => c,
-            Err(e) => { eprintln!("myshell: {e}"); continue; }
-        };
-        cmd.envs(&shell.env);
-
-        if let Some(prev) = prev_stdout.take() { cmd.stdin(prev); }
-
-        let is_last = i == n - 1;
-        if !is_last { cmd.stdout(Stdio::piped()); }
-
-        match cmd.spawn() {
-            Ok(mut child) => {
-                if !is_last {
-                    if let Some(stdout) = child.stdout.take() {
-                        prev_stdout = Some(Stdio::from(stdout));
-                    }
-                }
-                children.push(child);
-            }
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::NotFound { builtin::command_not_found(&args[0]); }
-                else { eprintln!("myshell: {}: {}", args[0], e); }
-            }
-        }
-    }
-
-    let mut last_code = 0;
-    for mut child in children {
-        if let Ok(status) = child.wait() {
-            last_code = status.code().unwrap_or(0);
-        }
-    }
-
-    crossterm::terminal::enable_raw_mode().ok();
-    Ok(last_code)
-}
-
 fn platform_command(program: &str) -> Proc {
     #[cfg(target_os = "windows")]
     {
@@ -304,15 +255,200 @@ fn platform_command(program: &str) -> Proc {
             cmd.args(["/C", program]);
             return cmd;
         }
-        Proc::new(program)
     }
-    #[cfg(not(target_os = "windows"))]
     Proc::new(program)
 }
 
-pub fn expand_arithmetic_str(shell: &Shell, s: &str) -> String {
-    expand_arithmetic(shell, s)
+// ── Pipeline ──────────────────────────────────────────────────────────────────
+
+fn is_builtin_cmd(name: &str) -> bool {
+    matches!(name,
+        "cd"|"pwd"|"echo"|"export"|"unset"|"alias"|"unalias"|"history"|
+        "source"|"clear"|"cls"|"sleep"|"functions"|"help"|"which"|
+        "pushd"|"popd"|"dirs"|"ls"|"mkdir"|"rm"|"cp"|"mv"|"cat"|"touch"|
+        "chmod"|"ln"|"grep"|"find"|"head"|"tail"|"wc"|"env"|"sort"|"uniq"|
+        "jobs"|"fg"|"bg"|"kill"|"test"|"["|"true"|"false"|"exit"|"quit"
+    )
 }
+
+fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
+    if cmds.len() == 1 {
+        return run(shell, cmds.into_iter().next().unwrap());
+    }
+
+    let mut stages: Vec<(Vec<String>, Vec<Redirect>)> = Vec::new();
+    for cmd in cmds {
+        match cmd {
+            Command::Simple { args, redirects, .. } => {
+                let mut expanded = args;
+                for arg in &mut expanded {
+                    *arg = expand_arithmetic(shell, arg);
+                    *arg = expand_vars(shell, arg);
+                }
+                expanded = crate::glob::expand_args(expanded);
+                stages.push((expanded, redirects));
+            }
+            _ => continue,
+        }
+    }
+
+    if stages.is_empty() { return Ok(0); }
+
+    let mut input_buf: Option<Vec<u8>> = None;
+    let mut last_code = 0;
+    let n = stages.len();
+
+    for (i, (args, redirects)) in stages.into_iter().enumerate() {
+        if args.is_empty() { continue; }
+        let is_last = i == n - 1;
+
+        if is_builtin_cmd(&args[0]) {
+            if is_last {
+                if let Some(ref buf) = input_buf {
+                    last_code = run_builtin_with_input(shell, &args, buf);
+                } else {
+                    last_code = builtin::run_builtin(shell, &args).unwrap_or(0);
+                }
+            } else {
+                let output = capture_builtin(shell, &args, input_buf.as_deref());
+                input_buf = Some(output);
+            }
+        } else {
+            crossterm::terminal::disable_raw_mode().ok();
+            let mut cmd = match build_command(&args, &redirects) {
+                Ok(c) => c,
+                Err(e) => { eprintln!("myshell: {e}"); continue; }
+            };
+            cmd.envs(&shell.env);
+
+            if let Some(ref buf) = input_buf {
+                cmd.stdin(Stdio::piped());
+                if !is_last { cmd.stdout(Stdio::piped()); }
+                match cmd.spawn() {
+                    Ok(mut child) => {
+                        if let Some(mut stdin) = child.stdin.take() {
+                            use std::io::Write;
+                            let _ = stdin.write_all(buf);
+                        }
+                        if !is_last {
+                            match child.wait_with_output() {
+                                Ok(out) => input_buf = Some(out.stdout),
+                                Err(_) => input_buf = None,
+                            }
+                        } else {
+                            last_code = child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(0);
+                            input_buf = None;
+                        }
+                    }
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::NotFound { builtin::command_not_found(&args[0]); }
+                        else { eprintln!("myshell: {}: {}", args[0], e); }
+                    }
+                }
+            } else {
+                if !is_last { cmd.stdout(Stdio::piped()); }
+                match cmd.spawn() {
+                    Ok(mut child) => {
+                        if !is_last {
+                            match child.wait_with_output() {
+                                Ok(out) => input_buf = Some(out.stdout),
+                                Err(_) => input_buf = None,
+                            }
+                        } else {
+                            last_code = child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(0);
+                        }
+                    }
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::NotFound { builtin::command_not_found(&args[0]); }
+                        else { eprintln!("myshell: {}: {}", args[0], e); }
+                    }
+                }
+            }
+            crossterm::terminal::enable_raw_mode().ok();
+        }
+    }
+    Ok(last_code)
+}
+
+/// Capture a builtin's stdout into a buffer, optionally feeding input via temp file
+fn capture_builtin(shell: &mut Shell, args: &[String], input: Option<&[u8]>) -> Vec<u8> {
+    // Pass-through: cat with no file args just forwards the buffer
+    if args[0] == "cat" && args.len() == 1 {
+        return input.unwrap_or_default().to_vec();
+    }
+
+    let mut new_args = args.to_vec();
+
+    // Write input to temp file and append as argument for commands that read files
+    if let Some(data) = input {
+        let tmp = std::env::temp_dir().join("rshell_pipe_in.tmp");
+        let _ = std::fs::write(&tmp, data);
+        new_args.push(tmp.to_string_lossy().to_string());
+    }
+
+    capture_stdout(shell, &new_args)
+}
+
+/// Run the last stage of a pipeline that is a builtin, feeding input_buf via temp file
+fn run_builtin_with_input(shell: &mut Shell, args: &[String], input: &[u8]) -> i32 {
+    // cat with no file just prints the buffer
+    if args[0] == "cat" && args.len() == 1 {
+        use std::io::Write;
+        std::io::stdout().write_all(input).ok();
+        return 0;
+    }
+
+    let mut new_args = args.to_vec();
+    let tmp = std::env::temp_dir().join("rshell_pipe_in.tmp");
+    let _ = std::fs::write(&tmp, input);
+    new_args.push(tmp.to_string_lossy().to_string());
+    builtin::run_builtin(shell, &new_args).unwrap_or(0)
+}
+
+/// Redirect stdout to a temp file, run a builtin, restore stdout, return captured bytes
+fn capture_stdout(shell: &mut Shell, args: &[String]) -> Vec<u8> {
+    let tmp = std::env::temp_dir().join("rshell_pipe_out.tmp");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::IntoRawFd;
+        let file = match std::fs::File::create(&tmp) {
+            Ok(f) => f,
+            Err(_) => return Vec::new(),
+        };
+        let fd = file.into_raw_fd();
+        unsafe {
+            let old_stdout = libc::dup(1);
+            libc::dup2(fd, 1);
+            libc::close(fd);
+            builtin::run_builtin(shell, args);
+            libc::dup2(old_stdout, 1);
+            libc::close(old_stdout);
+        }
+    }
+
+    #[cfg(windows)]
+    {
+    use std::os::windows::io::IntoRawHandle;
+    use windows_sys::Win32::System::Console::{GetStdHandle, SetStdHandle, STD_OUTPUT_HANDLE};
+
+    let file = match std::fs::File::create(&tmp) {
+        Ok(f) => f,
+        Err(_) => return Vec::new(),
+    };
+    let handle = file.into_raw_handle();
+    unsafe {
+        let old = GetStdHandle(STD_OUTPUT_HANDLE);
+        SetStdHandle(STD_OUTPUT_HANDLE, handle as *mut std::ffi::c_void);
+        builtin::run_builtin(shell, args);
+        SetStdHandle(STD_OUTPUT_HANDLE, old);
+    }
+    }
+
+    std::fs::read(&tmp).unwrap_or_default()
+}
+
+// ── Arithmetic expansion ──────────────────────────────────────────────────────
 
 pub fn expand_arithmetic(shell: &Shell, s: &str) -> String {
     let mut result = String::new();
@@ -401,6 +537,8 @@ fn parse_primary(s: &str) -> Result<(i64, &str)> {
         Ok((s[..end].parse()?, &s[end..]))
     }
 }
+
+// ── Variable expansion ────────────────────────────────────────────────────────
 
 pub fn expand_vars(shell: &Shell, s: &str) -> String {
     let mut result = String::new();
