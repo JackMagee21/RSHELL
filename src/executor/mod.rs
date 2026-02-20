@@ -13,9 +13,6 @@ pub fn execute(shell: &mut Shell, cmd: Command) -> Result<()> {
     Ok(())
 }
 
-// Public alias so shell.rs can call it
-
-
 fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
     match cmd {
         Command::Simple { args, redirects, background } => {
@@ -65,7 +62,7 @@ fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
         }
         Command::FunctionDef { name, body } => {
             shell.functions.insert(name.clone(), crate::shell::ShellFunction { name, body });
-            shell.save_functions();  // ← add this line
+            shell.save_functions();
             Ok(0)
         }
         Command::FunctionCall { name, args } => {
@@ -267,7 +264,7 @@ fn is_builtin_cmd(name: &str) -> bool {
         "source"|"clear"|"cls"|"sleep"|"functions"|"help"|"which"|
         "pushd"|"popd"|"dirs"|"ls"|"mkdir"|"rm"|"cp"|"mv"|"cat"|"touch"|
         "chmod"|"ln"|"grep"|"find"|"head"|"tail"|"wc"|"env"|"sort"|"uniq"|
-        "jobs"|"fg"|"bg"|"kill"|"test"|"["|"true"|"false"|"exit"|"quit"
+        "xargs"|"jobs"|"fg"|"bg"|"kill"|"test"|"["|"true"|"false"|"exit"|"quit"
     )
 }
 
@@ -303,6 +300,14 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
         let is_last = i == n - 1;
 
         if is_builtin_cmd(&args[0]) {
+            // Always write input buffer to temp file so xargs and other
+            // builtins can read it regardless of whether previous stage
+            // was a builtin or external command
+            if let Some(ref buf) = input_buf {
+                let tmp = std::env::temp_dir().join("rshell_pipe_in.tmp");
+                let _ = std::fs::write(&tmp, buf);
+            }
+
             if is_last {
                 if let Some(ref buf) = input_buf {
                     last_code = run_builtin_with_input(shell, &args, buf);
@@ -370,16 +375,13 @@ fn run_pipeline(shell: &mut Shell, cmds: Vec<Command>) -> Result<i32> {
     Ok(last_code)
 }
 
-/// Capture a builtin's stdout into a buffer, optionally feeding input via temp file
 fn capture_builtin(shell: &mut Shell, args: &[String], input: Option<&[u8]>) -> Vec<u8> {
-    // Pass-through: cat with no file args just forwards the buffer
     if args[0] == "cat" && args.len() == 1 {
         return input.unwrap_or_default().to_vec();
     }
 
     let mut new_args = args.to_vec();
 
-    // Write input to temp file and append as argument for commands that read files
     if let Some(data) = input {
         let tmp = std::env::temp_dir().join("rshell_pipe_in.tmp");
         let _ = std::fs::write(&tmp, data);
@@ -389,9 +391,7 @@ fn capture_builtin(shell: &mut Shell, args: &[String], input: Option<&[u8]>) -> 
     capture_stdout(shell, &new_args)
 }
 
-/// Run the last stage of a pipeline that is a builtin, feeding input_buf via temp file
 fn run_builtin_with_input(shell: &mut Shell, args: &[String], input: &[u8]) -> i32 {
-    // cat with no file just prints the buffer
     if args[0] == "cat" && args.len() == 1 {
         use std::io::Write;
         std::io::stdout().write_all(input).ok();
@@ -405,7 +405,6 @@ fn run_builtin_with_input(shell: &mut Shell, args: &[String], input: &[u8]) -> i
     builtin::run_builtin(shell, &new_args).unwrap_or(0)
 }
 
-/// Redirect stdout to a temp file, run a builtin, restore stdout, return captured bytes
 fn capture_stdout(shell: &mut Shell, args: &[String]) -> Vec<u8> {
     let tmp = std::env::temp_dir().join("rshell_pipe_out.tmp");
 
@@ -429,20 +428,20 @@ fn capture_stdout(shell: &mut Shell, args: &[String]) -> Vec<u8> {
 
     #[cfg(windows)]
     {
-    use std::os::windows::io::IntoRawHandle;
-    use windows_sys::Win32::System::Console::{GetStdHandle, SetStdHandle, STD_OUTPUT_HANDLE};
+        use std::os::windows::io::IntoRawHandle;
+        use windows_sys::Win32::System::Console::{GetStdHandle, SetStdHandle, STD_OUTPUT_HANDLE};
 
-    let file = match std::fs::File::create(&tmp) {
-        Ok(f) => f,
-        Err(_) => return Vec::new(),
-    };
-    let handle = file.into_raw_handle();
-    unsafe {
-        let old = GetStdHandle(STD_OUTPUT_HANDLE);
-        SetStdHandle(STD_OUTPUT_HANDLE, handle as *mut std::ffi::c_void);
-        builtin::run_builtin(shell, args);
-        SetStdHandle(STD_OUTPUT_HANDLE, old);
-    }
+        let file = match std::fs::File::create(&tmp) {
+            Ok(f) => f,
+            Err(_) => return Vec::new(),
+        };
+        let handle = file.into_raw_handle();
+        unsafe {
+            let old = GetStdHandle(STD_OUTPUT_HANDLE);
+            SetStdHandle(STD_OUTPUT_HANDLE, handle as *mut std::ffi::c_void);
+            builtin::run_builtin(shell, args);
+            SetStdHandle(STD_OUTPUT_HANDLE, old);
+        }
     }
 
     std::fs::read(&tmp).unwrap_or_default()

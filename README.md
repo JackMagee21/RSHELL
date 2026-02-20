@@ -22,3 +22,6 @@ RShell is a shell written from scratch in Rust with no bloat (not 100% bout that
 | **Shell** | `echo`, `export`, `unset`, `alias`, `unalias`, `source`, `history` |
 | **Jobs** | `jobs`, `fg`, `bg`, `kill` |
 | **Utilities** | `which`, `sleep`, `clear`,`help`, `true`, `false`, `test` |
+
+## Why?
+For me this is unoptimised slop and a way for me to learn rust libaries, core and more!

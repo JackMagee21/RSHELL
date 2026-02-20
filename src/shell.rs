@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use anyhow::Result;
 
-
 pub struct Job {
     pub id: usize,
     pub pid: u32,
@@ -76,7 +75,6 @@ impl Shell {
         shell
     }
 
-    /// Add a background job, returns its job id
     pub fn add_job(&mut self, pid: u32, command: String) -> usize {
         self.job_counter += 1;
         let id = self.job_counter;
@@ -89,11 +87,9 @@ impl Shell {
         id
     }
 
-    /// Remove completed jobs from the jobs table
     pub fn reap_jobs(&mut self) {
         let mut done = Vec::new();
         for (id, job) in &self.jobs {
-            // Check if process is still alive by sending signal 0
             #[cfg(unix)]
             {
                 let alive = unsafe { libc::kill(job.pid as i32, 0) } == 0;
@@ -101,9 +97,7 @@ impl Shell {
             }
             #[cfg(windows)]
             {
-                // On Windows check via OpenProcess
-                use std::process::Command;
-                let alive = Command::new("tasklist")
+                let alive = std::process::Command::new("tasklist")
                     .args(["/FI", &format!("PID eq {}", job.pid)])
                     .output()
                     .map(|o| String::from_utf8_lossy(&o.stdout).contains(&job.pid.to_string()))
@@ -175,132 +169,172 @@ impl Shell {
     }
 
     fn parse_inline_function(&mut self, input: &str, name: String) -> Result<()> {
-        let open = match input.find('{') {
-            Some(i) => i,
-            None => {
-                self.functions.insert(name.clone(), ShellFunction { name, body: vec![] });
-                return Ok(());
+    let open = match input.find('{') {
+        Some(i) => i,
+        None => {
+            self.functions.insert(name.clone(), ShellFunction { name, body: vec![] });
+            self.save_functions(); // ← add this
+            return Ok(());
+        }
+    };
+    let close = input.rfind('}').unwrap_or(input.len());
+    let body_str = &input[open + 1..close];
+    let body: Vec<String> = body_str
+        .split(';')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    self.functions.insert(name.clone(), ShellFunction { name, body });
+    self.save_functions(); // ← add this
+    Ok(())
+    }
+
+    pub fn expand_history(&self, input: &str) -> String {
+        let input = input.trim();
+
+        if input == "!!" || input.starts_with("!! ") {
+            if let Some(last) = self.history.iter().rev()
+                .find(|h| h.as_str() != "!!" && !h.starts_with("!!"))
+            {
+                let suffix = input.strip_prefix("!!").unwrap_or("").trim();
+                let expanded = if suffix.is_empty() {
+                    last.clone()
+                } else {
+                    format!("{} {}", last, suffix)
+                };
+                eprintln!("{}", expanded);
+                return expanded;
             }
-        };
-        let close = input.rfind('}').unwrap_or(input.len());
-        let body_str = &input[open + 1..close];
-        let body: Vec<String> = body_str
-            .split(';')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        self.functions.insert(name.clone(), ShellFunction { name, body });
-        Ok(())
+            eprintln!("myshell: !!: event not found");
+            return input.to_string();
+        }
+
+        if input.starts_with('!') && input.len() > 1 {
+            let rest = &input[1..];
+            let (num_str, suffix) = rest.split_once(' ').unwrap_or((rest, ""));
+            if let Ok(n) = num_str.parse::<usize>() {
+                if n >= 1 && n <= self.history.len() {
+                    let cmd = &self.history[n - 1];
+                    let expanded = if suffix.is_empty() {
+                        cmd.clone()
+                    } else {
+                        format!("{} {}", cmd, suffix)
+                    };
+                    eprintln!("{}", expanded);
+                    return expanded;
+                }
+                eprintln!("myshell: !{}: event not found", n);
+                return input.to_string();
+            }
+        }
+
+        input.to_string()
     }
 
     pub fn build_prompt(&self) -> String {
-    let home = dirs::home_dir()
-        .map(|h| h.display().to_string())
-        .unwrap_or_default();
+        let home = dirs::home_dir()
+            .map(|h| h.display().to_string())
+            .unwrap_or_default();
 
-    // Clean up Windows \\?\ prefix
-    let cwd = self.cwd.display().to_string();
-    let cwd = cwd.trim_start_matches("\\\\?\\").to_string();
+        let cwd = self.cwd.display().to_string();
+        let cwd = cwd.trim_start_matches("\\\\?\\").to_string();
 
-    // Replace home dir with ~
-    let cwd = if cwd.starts_with(&home) {
-        cwd.replacen(&home, "~", 1)
-    } else {
-        cwd
-    };
+        let cwd = if cwd.starts_with(&home) {
+            cwd.replacen(&home, "~", 1)
+        } else {
+            cwd
+        };
 
-    // Only show last 2 parts of path to keep prompt short
-    // e.g. "C:\Users\mtj07\RSHELL\cool" → "RSHELL/cool"
-    let short = shorten_path(&cwd);
+        let short = shorten_path(&cwd);
 
-    let code_indicator = if self.last_exit_code == 0 {
-        "\x1b[32m❯\x1b[0m"
-    } else {
-        "\x1b[31m❯\x1b[0m"
-    };
+        let code_indicator = if self.last_exit_code == 0 {
+            "\x1b[32m❯\x1b[0m"
+        } else {
+            "\x1b[31m❯\x1b[0m"
+        };
 
-    let git_branch = get_git_branch()
-        .map(|b| format!(" \x1b[35m({})\x1b[0m", b))
-        .unwrap_or_default();
+        let git_branch = get_git_branch()
+            .map(|b| format!(" \x1b[35m({})\x1b[0m", b))
+            .unwrap_or_default();
 
         format!("\x1b[34m{}\x1b[0m{} {} ", short, git_branch, code_indicator)
     }
 
+    /// Save aliases to ~/.myshellrc (replaces existing alias lines)
     pub fn save_aliases(&self) {
-    let rc_path = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".myshellrc");
+        let rc_path = dirs::home_dir()
+            .unwrap_or_default()
+            .join(".myshellrc");
 
-    let existing = std::fs::read_to_string(&rc_path).unwrap_or_default();
-    let mut lines: Vec<String> = existing
-        .lines()
-        .filter(|l| !l.trim_start().starts_with("alias "))
-        .map(|l| l.to_string())
-        .collect();
+        let existing = std::fs::read_to_string(&rc_path).unwrap_or_default();
 
-    if !self.aliases.is_empty() {
-        lines.push(String::new());
-        lines.push("# aliases".to_string());
-        let mut sorted: Vec<(&String, &ShellFunction)> = self.functions.iter().collect();
-        sorted.sort_by_key(|(k, _)| k.as_str());
-        for (name, func) in sorted {
-        lines.push(format!("function {}() {{", name));
-        for line in &func.body {
-            lines.push(format!("    {}", line));
-        }
-        lines.push("}".to_string());
-        lines.push(String::new());
-        }
-    }
+        // Keep all lines that aren't alias lines
+        let mut lines: Vec<String> = existing
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("alias "))
+            .map(|l| l.to_string())
+            .collect();
 
-    let content = lines.join("\n") + "\n";
-    if let Err(e) = std::fs::write(&rc_path, content) {
-        eprintln!("myshell: warning: could not save aliases: {}", e);
-    }
-}
-
-pub fn save_functions(&self) {
-    let rc_path = dirs::home_dir()
-        .unwrap_or_default()
-        .join(".myshellrc");
-
-    let existing = std::fs::read_to_string(&rc_path).unwrap_or_default();
-
-    // Strip old function definitions
-    let mut lines: Vec<String> = Vec::new();
-    let mut in_func = false;
-    for line in existing.lines() {
-        if line.starts_with("function ") || line.contains("() {") {
-            in_func = true;
-        }
-        if in_func {
-            if line.trim() == "}" { in_func = false; }
-            continue;
-        }
-        lines.push(line.to_string());
-    }
-
-    // Append current functions
-    if !self.functions.is_empty() {
-        lines.push(String::new());
-        let mut sorted: Vec<(&String, &ShellFunction)> = self.functions.iter().collect();
-        sorted.sort_by_key(|(k, _)| k.as_str());
-        for (name, func) in sorted {
-            lines.push(format!("function {}() {{", name));
-            for line in &func.body {
-                lines.push(format!("    {}", line));
-            }
-            lines.push("}".to_string());
+        // Append current aliases sorted
+        if !self.aliases.is_empty() {
             lines.push(String::new());
+            lines.push("# aliases".to_string());
+            let mut sorted: Vec<(&String, &String)> = self.aliases.iter().collect();
+            sorted.sort_by_key(|(k, _)| k.as_str());
+            for (k, v) in sorted {
+                lines.push(format!("alias {}='{}'", k, v));
+            }
+        }
+
+        let content = lines.join("\n") + "\n";
+        if let Err(e) = std::fs::write(&rc_path, content) {
+            eprintln!("myshell: warning: could not save aliases: {}", e);
         }
     }
 
-    let content = lines.join("\n") + "\n";
-    if let Err(e) = std::fs::write(&rc_path, content) {
-        eprintln!("myshell: warning: could not save functions: {}", e);
-    }
-}
+    /// Save functions to ~/.myshellrc (replaces existing function definitions)
+    pub fn save_functions(&self) {
+        let rc_path = dirs::home_dir()
+            .unwrap_or_default()
+            .join(".myshellrc");
 
+        let existing = std::fs::read_to_string(&rc_path).unwrap_or_default();
+
+        // Strip old function blocks
+        let mut lines: Vec<String> = Vec::new();
+        let mut in_func = false;
+        for line in existing.lines() {
+            if !in_func && (line.starts_with("function ") || line.contains("() {")) {
+                in_func = true;
+                continue;
+            }
+            if in_func {
+                if line.trim() == "}" { in_func = false; }
+                continue;
+            }
+            lines.push(line.to_string());
+        }
+
+        // Append current functions sorted
+        if !self.functions.is_empty() {
+            lines.push(String::new());
+            let mut sorted: Vec<(&String, &ShellFunction)> = self.functions.iter().collect();
+            sorted.sort_by_key(|(k, _)| k.as_str());
+            for (name, func) in sorted {
+                lines.push(format!("function {}() {{", name));
+                for line in &func.body {
+                    lines.push(format!("    {}", line));
+                }
+                lines.push("}".to_string());
+                lines.push(String::new());
+            }
+        }
+
+        let content = lines.join("\n") + "\n";
+        if let Err(e) = std::fs::write(&rc_path, content) {
+            eprintln!("myshell: warning: could not save functions: {}", e);
+        }
+    }
 }
 
 pub fn parse_function_start(line: &str) -> Option<String> {
@@ -342,16 +376,10 @@ fn get_git_branch() -> Option<String> {
 }
 
 fn shorten_path(path: &str) -> String {
-    // Normalize separators to /
     let path = path.replace('\\', "/");
-    
-    // Split into parts and take last 2
     let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    
     if parts.len() <= 2 {
         return path.trim_start_matches('/').to_string();
     }
-    
-    // Show last 2 components
     parts[parts.len() - 2..].join("/")
 }

@@ -223,7 +223,6 @@ pub fn builtin_xargs(args: &[String]) -> i32 {
         return 1;
     }
 
-    // Read input from pipe temp file
     let tmp = std::env::temp_dir().join("rshell_pipe_in.tmp");
     let input = match std::fs::read_to_string(&tmp) {
         Ok(s) => s,
@@ -248,21 +247,36 @@ pub fn builtin_xargs(args: &[String]) -> i32 {
     full_args.extend(initial_args.iter().cloned());
     full_args.extend(file_args);
 
-    crossterm::terminal::disable_raw_mode().ok();
-    let mut cmd = std::process::Command::new(cmd_name);
-    cmd.args(&full_args[1..]);
-
-    let code = match cmd.status() {
-        Ok(status) => status.code().unwrap_or(0),
-        Err(e) => {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                eprintln!("xargs: {}: command not found", cmd_name);
-            } else {
-                eprintln!("xargs: {}: {}", cmd_name, e);
-            }
-            1
+    // Try as builtin first, then fall back to external
+    // We need a shell reference for builtins that need it — for stateless
+    // builtins (wc, grep, sort etc) we can call them directly
+    match cmd_name.as_str() {
+        "wc"   => super::text::builtin_wc(&full_args),
+        "grep" => super::grep::builtin_grep(&full_args),
+        "sort" => super::text::builtin_sort(&full_args),
+        "head" => super::text::builtin_head(&full_args),
+        "tail" => super::text::builtin_tail(&full_args),
+        "cat"  => super::fs::builtin_cat(&full_args),
+        "rm"   => super::fs::builtin_rm(&full_args),
+        "chmod"=> super::fs::builtin_chmod(&full_args),
+        _ => {
+            // Fall back to external command
+            crossterm::terminal::disable_raw_mode().ok();
+            let mut cmd = std::process::Command::new(cmd_name);
+            cmd.args(&full_args[1..]);
+            let code = match cmd.status() {
+                Ok(status) => status.code().unwrap_or(0),
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        eprintln!("xargs: {}: command not found", cmd_name);
+                    } else {
+                        eprintln!("xargs: {}: {}", cmd_name, e);
+                    }
+                    1
+                }
+            };
+            crossterm::terminal::enable_raw_mode().ok();
+            code
         }
-    };
-    crossterm::terminal::enable_raw_mode().ok();
-    code
+    }
 }
