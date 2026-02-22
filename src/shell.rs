@@ -318,6 +318,26 @@ impl Shell {
             eprintln!("myshell: warning: could not save functions: {}", e);
         }
     }
+
+let rshell_bin = crate::executor::builtin::rshell_bin_dir();
+let rshell_bin_str = rshell_bin.to_string_lossy().to_string();
+
+// Get current PATH and prepend ~/.rshell/bin if not already there
+let current_path = std::env::var("PATH").unwrap_or_default();
+if !current_path.contains(&rshell_bin_str) {
+    #[cfg(windows)]
+    let sep = ";";
+    #[cfg(not(windows))]
+    let sep = ":";
+
+    let new_path = format!("{}{}{}", rshell_bin_str, sep, current_path);
+    unsafe { std::env::set_var("PATH", &new_path); }
+    shell.env.insert("PATH".to_string(), new_path);
+}
+
+// Create ~/.rshell/bin if it doesn't exist yet
+let _ = std::fs::create_dir_all(&rshell_bin);
+    
 }
 
 pub fn parse_function_start(line: &str) -> Option<String> {

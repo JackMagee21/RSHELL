@@ -4,10 +4,12 @@ mod find;
 mod fs;
 mod grep;
 mod jobs;
+mod pkg;
 mod test;
 mod text;
 mod util;
 
+pub use pkg::rshell_bin_dir;
 pub use util::command_not_found;
 
 use crate::shell::Shell;
@@ -15,7 +17,7 @@ use crate::shell::Shell;
 pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
     crossterm::terminal::disable_raw_mode().ok();
 
-    match args[0].as_str() {
+    let code = match args[0].as_str() {
         // ── Core ──────────────────────────────────────────────
         "cd"              => Some(core::builtin_cd(shell, args)),
         "pwd"             => Some(core::builtin_pwd(shell)),
@@ -59,6 +61,11 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "uniq"            => Some(text::builtin_uniq(args)),
         "xargs"           => Some(text::builtin_xargs(args)),
 
+        // ── Package manager ───────────────────────────────────
+        "pkg"             => Some(pkg::builtin_pkg(args)),
+        "install"         => Some(pkg::builtin_install(args)),
+        "uninstall"       => Some(pkg::builtin_uninstall(args)),
+
         // ── Job control ───────────────────────────────────────
         "jobs"            => Some(jobs::builtin_jobs(shell)),
         "fg"              => Some(jobs::builtin_fg(shell, args)),
@@ -74,5 +81,8 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "exit" | "quit"   => std::process::exit(shell.last_exit_code),
 
         _                 => None,
-    }
+    };
+
+    crossterm::terminal::enable_raw_mode().ok();
+    code
 }

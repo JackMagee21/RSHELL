@@ -32,3 +32,10 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security",
     "Win32_Foundation",
 ]}
+
+ureq = "2.9"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+zip = "0.6"
+flate2 = "1.0"
+tar = "0.4"
