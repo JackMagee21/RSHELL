@@ -78,7 +78,7 @@ fn grep_dir(
     invert: bool,
     line_nums: bool,
     count_only: bool,
-    multiple_files: bool,
+    _multiple_files: bool,
 ) -> i32 {
     let mut total = 0;
     let Ok(entries) = std::fs::read_dir(dir) else { return 0 };

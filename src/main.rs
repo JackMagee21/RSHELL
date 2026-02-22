@@ -73,7 +73,7 @@ fn main() {
             }
         }
 
-        let input = input.trim().to_string();
+        let input = shell.expand_history(&input);
         if input.is_empty() { continue; }
 
         shell.history.push(input.clone());

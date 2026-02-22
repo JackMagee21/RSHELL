@@ -1,5 +1,9 @@
 // src/parser/ast.rs
 
+// When compling, it doesnt construct these variants,
+// so it thinks they are unused. But they are needed for the parser to construct the AST,
+// so we need to keep them around, hense the #[allow(dead_code)].
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum Command {
     Simple {
