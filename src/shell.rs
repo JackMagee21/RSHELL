@@ -13,7 +13,6 @@ pub struct Job {
 #[derive(Debug, Clone, PartialEq)]
 pub enum JobStatus {
     Running,
-    Stopped,
     Done,
 }
 
@@ -21,7 +20,6 @@ impl std::fmt::Display for JobStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             JobStatus::Running => write!(f, "Running"),
-            JobStatus::Stopped => write!(f, "Stopped"),
             JobStatus::Done    => write!(f, "Done"),
         }
     }
@@ -30,7 +28,6 @@ impl std::fmt::Display for JobStatus {
 /// A user-defined function
 #[derive(Debug, Clone)]
 pub struct ShellFunction {
-    pub name: String,
     pub body: Vec<String>,
 }
 
@@ -43,7 +40,6 @@ pub struct Shell {
     pub functions: HashMap<String, ShellFunction>,
     pub last_exit_code: i32,
     pub jobs: HashMap<usize, Job>,
-    pub job_counter: usize,
     pub dir_stack: Vec<PathBuf>,
     pub exit_on_error: bool,
 }
@@ -62,7 +58,6 @@ impl Shell {
             functions: HashMap::new(),
             last_exit_code: 0,
             jobs: HashMap::new(),
-            job_counter: 0,
             dir_stack: Vec::new(),
             exit_on_error: false,
         };
@@ -73,18 +68,6 @@ impl Shell {
         shell.aliases.insert("...".to_string(), "cd ../..".to_string());
 
         shell
-    }
-
-    pub fn add_job(&mut self, pid: u32, command: String) -> usize {
-        self.job_counter += 1;
-        let id = self.job_counter;
-        self.jobs.insert(id, Job {
-            id,
-            pid,
-            command,
-            status: JobStatus::Running,
-        });
-        id
     }
 
     pub fn reap_jobs(&mut self) {
@@ -128,7 +111,7 @@ impl Shell {
                     if trimmed == "}" {
                         let name = name.clone();
                         let body = body.clone();
-                        self.functions.insert(name.clone(), ShellFunction { name, body });
+                        self.functions.insert(name.clone(), ShellFunction { body });
                         func_buffer = None;
                     } else {
                         body.push(trimmed.to_string());
@@ -172,7 +155,7 @@ impl Shell {
     let open = match input.find('{') {
         Some(i) => i,
         None => {
-            self.functions.insert(name.clone(), ShellFunction { name, body: vec![] });
+            self.functions.insert(name.clone(), ShellFunction { body: vec![] });
             self.save_functions(); // ← add this
             return Ok(());
         }
@@ -184,7 +167,7 @@ impl Shell {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-    self.functions.insert(name.clone(), ShellFunction { name, body });
+    self.functions.insert(name.clone(), ShellFunction { body });
     self.save_functions(); // ← add this
     Ok(())
     }

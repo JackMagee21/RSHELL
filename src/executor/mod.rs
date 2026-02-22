@@ -89,7 +89,7 @@ pub fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
         Command::FunctionDef { name, body } => {
             shell.functions.insert(
                 name.clone(),
-                crate::shell::ShellFunction { name, body },
+                crate::shell::ShellFunction { body },
             );
             shell.save_functions();
             Ok(0)
