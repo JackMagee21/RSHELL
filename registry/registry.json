@@ -6,13 +6,15 @@
       "version": "14.1.0",
       "windows": {
         "url": "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-pc-windows-msvc.zip",
-        "bin": "ripgrep-14.1.0-x86_64-pc-windows-msvc/rg.exe",
-        "shim": "rg.exe"
+        "bins": [
+          { "path": "ripgrep-14.1.0-x86_64-pc-windows-msvc/rg.exe", "shim": "rg.exe" }
+        ]
       },
       "linux": {
         "url": "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz",
-        "bin": "ripgrep-14.1.0-x86_64-unknown-linux-musl/rg",
-        "shim": "rg"
+        "bins": [
+          { "path": "ripgrep-14.1.0-x86_64-unknown-linux-musl/rg", "shim": "rg" }
+        ]
       }
     },
     "fd": {
@@ -20,13 +22,15 @@
       "version": "10.1.0",
       "windows": {
         "url": "https://github.com/sharkdp/fd/releases/download/v10.1.0/fd-v10.1.0-x86_64-pc-windows-msvc.zip",
-        "bin": "fd-v10.1.0-x86_64-pc-windows-msvc/fd.exe",
-        "shim": "fd.exe"
+        "bins": [
+          { "path": "fd-v10.1.0-x86_64-pc-windows-msvc/fd.exe", "shim": "fd.exe" }
+        ]
       },
       "linux": {
         "url": "https://github.com/sharkdp/fd/releases/download/v10.1.0/fd-v10.1.0-x86_64-unknown-linux-musl.tar.gz",
-        "bin": "fd-v10.1.0-x86_64-unknown-linux-musl/fd",
-        "shim": "fd"
+        "bins": [
+          { "path": "fd-v10.1.0-x86_64-unknown-linux-musl/fd", "shim": "fd" }
+        ]
       }
     },
     "bat": {
@@ -34,13 +38,15 @@
       "version": "0.24.0",
       "windows": {
         "url": "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-x86_64-pc-windows-msvc.zip",
-        "bin": "bat-v0.24.0-x86_64-pc-windows-msvc/bat.exe",
-        "shim": "bat.exe"
+        "bins": [
+          { "path": "bat-v0.24.0-x86_64-pc-windows-msvc/bat.exe", "shim": "bat.exe" }
+        ]
       },
       "linux": {
         "url": "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-x86_64-unknown-linux-musl.tar.gz",
-        "bin": "bat-v0.24.0-x86_64-unknown-linux-musl/bat",
-        "shim": "bat"
+        "bins": [
+          { "path": "bat-v0.24.0-x86_64-unknown-linux-musl/bat", "shim": "bat" }
+        ]
       }
     },
     "fzf": {
@@ -48,13 +54,15 @@
       "version": "0.54.3",
       "windows": {
         "url": "https://github.com/junegunn/fzf/releases/download/v0.54.3/fzf-0.54.3-windows_amd64.zip",
-        "bin": "fzf.exe",
-        "shim": "fzf.exe"
+        "bins": [
+          { "path": "fzf.exe", "shim": "fzf.exe" }
+        ]
       },
       "linux": {
         "url": "https://github.com/junegunn/fzf/releases/download/v0.54.3/fzf-0.54.3-linux_amd64.tar.gz",
-        "bin": "fzf",
-        "shim": "fzf"
+        "bins": [
+          { "path": "fzf", "shim": "fzf" }
+        ]
       }
     },
     "delta": {
@@ -62,13 +70,155 @@
       "version": "0.17.0",
       "windows": {
         "url": "https://github.com/dandavison/delta/releases/download/0.17.0/delta-0.17.0-x86_64-pc-windows-msvc.zip",
-        "bin": "delta-0.17.0-x86_64-pc-windows-msvc/delta.exe",
-        "shim": "delta.exe"
+        "bins": [
+          { "path": "delta-0.17.0-x86_64-pc-windows-msvc/delta.exe", "shim": "delta.exe" }
+        ]
       },
       "linux": {
         "url": "https://github.com/dandavison/delta/releases/download/0.17.0/delta-0.17.0-x86_64-unknown-linux-musl.tar.gz",
-        "bin": "delta-0.17.0-x86_64-unknown-linux-musl/delta",
-        "shim": "delta"
+        "bins": [
+          { "path": "delta-0.17.0-x86_64-unknown-linux-musl/delta", "shim": "delta" }
+        ]
+      }
+    },
+    "zig": {
+      "description": "Zig compiler — also works as a C/C++ compiler via 'zig cc' and 'zig c++'",
+      "version": "0.13.0",
+      "windows": {
+        "url": "https://ziglang.org/download/0.13.0/zig-windows-x86_64-0.13.0.zip",
+        "bins": [
+          { "path": "zig-windows-x86_64-0.13.0/zig.exe", "shim": "zig.exe" }
+        ]
+      },
+      "linux": {
+        "url": "https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz",
+        "bins": [
+          { "path": "zig-linux-x86_64-0.13.0/zig", "shim": "zig" }
+        ]
+      }
+    },
+    "node": {
+      "description": "Node.js JavaScript runtime (includes npm and npx)",
+      "version": "20.11.0",
+      "windows": {
+        "url": "https://nodejs.org/dist/v20.11.0/node-v20.11.0-win-x64.zip",
+        "bins": [
+          { "path": "node-v20.11.0-win-x64/node.exe", "shim": "node.exe" },
+          { "path": "node-v20.11.0-win-x64/npm.cmd", "shim": "npm.cmd" },
+          { "path": "node-v20.11.0-win-x64/npx.cmd", "shim": "npx.cmd" }
+        ]
+      },
+      "linux": {
+        "url": "https://nodejs.org/dist/v20.11.0/node-v20.11.0-linux-x64.tar.gz",
+        "bins": [
+          { "path": "node-v20.11.0-linux-x64/bin/node", "shim": "node" },
+          { "path": "node-v20.11.0-linux-x64/bin/npm", "shim": "npm" },
+          { "path": "node-v20.11.0-linux-x64/bin/npx", "shim": "npx" }
+        ]
+      }
+    },
+    "python": {
+      "description": "Python runtime with pip (via python-build-standalone)",
+      "version": "3.12.2",
+      "windows": {
+        "url": "https://github.com/indygreg/python-build-standalone/releases/download/20240224/cpython-3.12.2+20240224-x86_64-pc-windows-msvc-install_only.tar.gz",
+        "bins": [
+          { "path": "python/python.exe", "shim": "python.exe" },
+          { "path": "python/python.exe", "shim": "python3.exe" },
+          { "path": "python/Scripts/pip.exe", "shim": "pip.exe" },
+          { "path": "python/Scripts/pip.exe", "shim": "pip3.exe" }
+        ]
+      },
+      "linux": {
+        "url": "https://github.com/indygreg/python-build-standalone/releases/download/20240224/cpython-3.12.2+20240224-x86_64-unknown-linux-gnu-install_only.tar.gz",
+        "bins": [
+          { "path": "python/bin/python3", "shim": "python3" },
+          { "path": "python/bin/python3", "shim": "python" },
+          { "path": "python/bin/pip3", "shim": "pip3" },
+          { "path": "python/bin/pip3", "shim": "pip" }
+        ]
+      }
+    },
+    "go": {
+      "description": "Go programming language",
+      "version": "1.22.0",
+      "windows": {
+        "url": "https://go.dev/dl/go1.22.0.windows-amd64.zip",
+        "bins": [
+          { "path": "go/bin/go.exe", "shim": "go.exe" },
+          { "path": "go/bin/gofmt.exe", "shim": "gofmt.exe" }
+        ]
+      },
+      "linux": {
+        "url": "https://go.dev/dl/go1.22.0.linux-amd64.tar.gz",
+        "bins": [
+          { "path": "go/bin/go", "shim": "go" },
+          { "path": "go/bin/gofmt", "shim": "gofmt" }
+        ]
+      }
+    },
+    "deno": {
+      "description": "Deno JavaScript/TypeScript runtime",
+      "version": "1.41.0",
+      "windows": {
+        "url": "https://github.com/denoland/deno/releases/download/v1.41.0/deno-x86_64-pc-windows-msvc.zip",
+        "bins": [
+          { "path": "deno.exe", "shim": "deno.exe" }
+        ]
+      },
+      "linux": {
+        "url": "https://github.com/denoland/deno/releases/download/v1.41.0/deno-x86_64-unknown-linux-gnu.zip",
+        "bins": [
+          { "path": "deno", "shim": "deno" }
+        ]
+      }
+    },
+    "jq": {
+      "description": "Lightweight JSON processor",
+      "version": "1.7.1",
+      "windows": {
+        "url": "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-windows-amd64.exe",
+        "bins": [
+          { "path": "jq-windows-amd64.exe", "shim": "jq.exe" }
+        ]
+      },
+      "linux": {
+        "url": "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64",
+        "bins": [
+          { "path": "jq-linux-amd64", "shim": "jq" }
+        ]
+      }
+    },
+    "dust": {
+      "description": "More intuitive version of du",
+      "version": "1.0.0",
+      "windows": {
+        "url": "https://github.com/bootandy/dust/releases/download/v1.0.0/dust-v1.0.0-x86_64-pc-windows-msvc.zip",
+        "bins": [
+          { "path": "dust-v1.0.0-x86_64-pc-windows-msvc/dust.exe", "shim": "dust.exe" }
+        ]
+      },
+      "linux": {
+        "url": "https://github.com/bootandy/dust/releases/download/v1.0.0/dust-v1.0.0-x86_64-unknown-linux-musl.tar.gz",
+        "bins": [
+          { "path": "dust-v1.0.0-x86_64-unknown-linux-musl/dust", "shim": "dust" }
+        ]
+      }
+    },
+    "hyperfine": {
+      "description": "Command-line benchmarking tool",
+      "version": "1.18.0",
+      "windows": {
+        "url": "https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine-v1.18.0-x86_64-pc-windows-msvc.zip",
+        "bins": [
+          { "path": "hyperfine-v1.18.0-x86_64-pc-windows-msvc/hyperfine.exe", "shim": "hyperfine.exe" }
+        ]
+      },
+      "linux": {
+        "url": "https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine-v1.18.0-x86_64-unknown-linux-musl.tar.gz",
+        "bins": [
+          { "path": "hyperfine-v1.18.0-x86_64-unknown-linux-musl/hyperfine", "shim": "hyperfine" }
+        ]
       }
     }
   }

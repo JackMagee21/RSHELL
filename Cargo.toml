@@ -25,6 +25,7 @@ flate2 = "1.0"
 tar = "0.4"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 attohttpc = { version = "0.30.1", features = ["tls-rustls-native-roots"] }
+xz2 = "0.1.7"
 [profile.release]
 opt-level = 3
 strip = true
