@@ -9,7 +9,7 @@ use std::path::PathBuf;
 // ── Registry URL ──────────────────────────────────────────────────────────────
 // Change this to your own GitHub raw URL once you push registry.json
 const REGISTRY_URL: &str =
-    "https://raw.githubusercontent.com/JackMagee21/RSHELL/blob/main/registry/registry.json";
+    "https://raw.githubusercontent.com/JackMagee21/RSHELL/main/registry/registry.json";
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
