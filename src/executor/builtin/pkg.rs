@@ -2,14 +2,20 @@
 //
 // Built-in package manager for RShell.
 // Downloads packages from a registry hosted on GitHub, extracts them
-// into ~/.rshell/packages/<name>/, and creates shims in ~/.rshell/bin/.
+// into ~/.rshell/packages/<n>/, and creates shims in ~/.rshell/bin/.
 
 use std::path::PathBuf;
+use std::io::Write;
 
 // ── Registry URL ──────────────────────────────────────────────────────────────
-// Point this at your own GitHub raw URL after pushing registry/registry.json
 const REGISTRY_URL: &str =
     "https://raw.githubusercontent.com/JackMagee21/RSHELL/main/registry/registry.json";
+
+const BAR_WIDTH   : usize = 20;
+const FILLED_CHAR : &str  = "#";
+const EMPTY_CHAR  : &str  = "·";
+const BAR_OPEN    : &str  = "{";
+const BAR_CLOSE   : &str  = "}";
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -80,17 +86,16 @@ fn cmd_install(name: Option<&str>) -> i32 {
     println!("⬇️  Downloading {} {}...", name, pkg.version);
     let archive = match download(&platform.url) {
         Ok(b)  => b,
-        Err(e) => { eprintln!("pkg: download failed: {}", e); return 1; }
+        Err(e) => { eprintln!("\npkg: download failed: {}", e); return 1; }
     };
 
     println!("📂 Extracting...");
     if let Err(e) = extract(&archive, &platform.url, &install_dir) {
-        eprintln!("pkg: extraction failed: {}", e);
+        eprintln!("\npkg: extraction failed: {}", e);
         let _ = std::fs::remove_dir_all(&install_dir);
         return 1;
     }
 
-    // Write metadata
     let meta = Meta {
         name:    name.to_string(),
         version: pkg.version.clone(),
@@ -100,7 +105,6 @@ fn cmd_install(name: Option<&str>) -> i32 {
         eprintln!("pkg: warning: could not write metadata: {}", e);
     }
 
-    // Create shims for every binary in this package
     println!("🔗 Creating shims...");
     for bin in &platform.bins {
         if let Err(e) = create_shim(&install_dir, bin) {
@@ -110,13 +114,11 @@ fn cmd_install(name: Option<&str>) -> i32 {
 
     println!("✅ Installed {} {}", name, pkg.version);
 
-    // Print usage hint
     let shim_names: Vec<&str> = platform.bins.iter()
         .map(|b| b.shim.trim_end_matches(".exe").trim_end_matches(".cmd"))
         .collect();
     println!("   Available commands: {}", shim_names.join(", "));
 
-    // Special hint for zig as C/C++ compiler
     if name == "zig" {
         println!();
         println!("   💡 Use Zig as a C/C++ compiler:");
@@ -139,13 +141,11 @@ fn cmd_uninstall(name: Option<&str>) -> i32 {
         return 1;
     }
 
-    // Remove all shims for this package
+    // Remove shims first
     if let Ok(meta) = read_meta(&install_dir) {
         for bin in &meta.bins {
             let shim = rshell_bin_dir().join(&bin.shim);
             let _ = std::fs::remove_file(&shim);
-
-            // Also remove .cmd wrapper on Windows
             #[cfg(windows)]
             {
                 let cmd = rshell_bin_dir().join(
@@ -156,12 +156,24 @@ fn cmd_uninstall(name: Option<&str>) -> i32 {
         }
     }
 
-    if let Err(e) = std::fs::remove_dir_all(&install_dir) {
-        eprintln!("pkg: failed to remove {}: {}", name, e);
-        return 1;
+    // Count files then delete with progress bar
+    let files = collect_files(&install_dir);
+    let total = files.len();
+
+    if total > 0 {
+        println!("🗑️  Removing {} files...", total);
+        for (i, path) in files.iter().enumerate() {
+            let filename = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            print_uninstall_progress(i + 1, total, filename);
+            let _ = std::fs::remove_file(path);
+        }
+        clear_progress_line();
     }
 
-    println!("🗑️  Uninstalled {}", name);
+    let _ = std::fs::remove_dir_all(&install_dir);
+    println!("✅ Uninstalled {}", name);
     0
 }
 
@@ -184,7 +196,6 @@ fn cmd_list() -> i32 {
     }
 
     entries.sort_by_key(|e| e.file_name());
-
     println!("{:<20} {:<12} {}", "NAME", "VERSION", "COMMANDS");
     println!("{}", "-".repeat(55));
 
@@ -205,15 +216,10 @@ fn cmd_list() -> i32 {
 
 fn cmd_update() -> i32 {
     println!("🔄 Refreshing registry...");
-    // Clear cache to force a fresh fetch
     let cache = registry_cache_path();
     let _ = std::fs::remove_file(&cache);
-
     match fetch_registry() {
-        Ok(r) => {
-            println!("✅ Registry updated ({} packages available)", r.packages.len());
-            0
-        }
+        Ok(r)  => { println!("✅ Registry updated ({} packages available)", r.packages.len()); 0 }
         Err(e) => { eprintln!("pkg: failed to update registry: {}", e); 1 }
     }
 }
@@ -225,8 +231,6 @@ fn cmd_upgrade(name: Option<&str>) -> i32 {
     };
 
     let packages_dir = rshell_packages_dir();
-
-    // Collect packages to upgrade
     let to_upgrade: Vec<String> = match name {
         Some(n) => vec![n.to_string()],
         None    => {
@@ -243,32 +247,22 @@ fn cmd_upgrade(name: Option<&str>) -> i32 {
     let mut upgraded = 0;
     for pkg_name in &to_upgrade {
         let install_dir = package_dir(pkg_name);
-        if !install_dir.exists() {
-            eprintln!("pkg: {} is not installed", pkg_name);
-            continue;
-        }
+        if !install_dir.exists() { eprintln!("pkg: {} is not installed", pkg_name); continue; }
 
         let registry_pkg = match registry.packages.get(pkg_name.as_str()) {
             Some(p) => p,
             None    => { eprintln!("pkg: {} not found in registry", pkg_name); continue; }
         };
 
-        let installed_version = read_meta(&install_dir)
-            .map(|m| m.version)
-            .unwrap_or_default();
-
+        let installed_version = read_meta(&install_dir).map(|m| m.version).unwrap_or_default();
         if installed_version == registry_pkg.version {
             println!("✅ {} is already up to date ({})", pkg_name, installed_version);
             continue;
         }
 
         println!("⬆️  Upgrading {} {} → {}...", pkg_name, installed_version, registry_pkg.version);
-
-        // Uninstall old version then install new
-        let mut args = vec!["pkg".to_string(), "uninstall".to_string(), pkg_name.clone()];
-        cmd_uninstall(args.get(2).map(|s| s.as_str()));
-        args[1] = "install".to_string();
-        cmd_install(args.get(2).map(|s| s.as_str()));
+        cmd_uninstall(Some(pkg_name.as_str()));
+        cmd_install(Some(pkg_name.as_str()));
         upgraded += 1;
     }
 
@@ -285,7 +279,6 @@ fn cmd_search(query: Option<&str>) -> i32 {
     };
 
     let packages_dir = rshell_packages_dir();
-
     println!("{:<20} {:<12} {:<10} {}", "NAME", "VERSION", "STATUS", "DESCRIPTION");
     println!("{}", "-".repeat(70));
 
@@ -295,16 +288,11 @@ fn cmd_search(query: Option<&str>) -> i32 {
 
     for name in names {
         let pkg = &registry.packages[name];
-
         if let Some(q) = query {
-            if !name.contains(q) && !pkg.description.contains(q) {
-                continue;
-            }
+            if !name.contains(q) && !pkg.description.contains(q) { continue; }
         }
-
         let installed = packages_dir.join(name).exists();
         let status    = if installed { "installed" } else { "" };
-
         println!("{:<20} {:<12} {:<10} {}", name, pkg.version, status, pkg.description);
         found = true;
     }
@@ -338,11 +326,10 @@ struct PlatformPkg {
     bins: Vec<BinEntry>,
 }
 
-/// A single binary to extract and shim from a package.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 struct BinEntry {
-    path: String,   // path inside the archive
-    shim: String,   // name of the shim in ~/.rshell/bin/
+    path: String,
+    shim: String,
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -355,7 +342,6 @@ struct Meta {
 // ── Registry fetching ─────────────────────────────────────────────────────────
 
 fn fetch_registry() -> anyhow::Result<Registry> {
-    // Use cache if it's less than an hour old
     let cache = registry_cache_path();
     if let Ok(meta) = std::fs::metadata(&cache) {
         if let Ok(modified) = meta.modified() {
@@ -369,14 +355,9 @@ fn fetch_registry() -> anyhow::Result<Registry> {
         }
     }
 
-    let content = attohttpc::get(REGISTRY_URL)
-        .send()?
-        .text()?;
-
-    // Cache the result
+    let content = attohttpc::get(REGISTRY_URL).send()?.text()?;
     let _ = std::fs::create_dir_all(rshell_dir());
     let _ = std::fs::write(&cache, &content);
-
     Ok(serde_json::from_str(&content)?)
 }
 
@@ -394,15 +375,35 @@ fn platform_pkg(pkg: &Package) -> Option<PlatformPkg> {
 // ── Download ──────────────────────────────────────────────────────────────────
 
 fn download(url: &str) -> anyhow::Result<Vec<u8>> {
-    let resp = attohttpc::get(url).send()?;
-    Ok(resp.bytes()?)
+    let response = attohttpc::get(url).send()?;
+
+    let total = response
+        .headers()
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok());
+
+    let mut reader     = response;
+    let mut buf        = Vec::new();
+    let mut downloaded = 0u64;
+    let mut chunk      = [0u8; 8192];
+
+    use std::io::Read;
+    loop {
+        let n = reader.read(&mut chunk)?;
+        if n == 0 { break; }
+        buf.extend_from_slice(&chunk[..n]);
+        downloaded += n as u64;
+        print_download_progress(downloaded, total);
+    }
+    clear_progress_line();
+    Ok(buf)
 }
 
 // ── Extraction ────────────────────────────────────────────────────────────────
 
 fn extract(data: &[u8], url: &str, dest: &PathBuf) -> anyhow::Result<()> {
     std::fs::create_dir_all(dest)?;
-
     if url.ends_with(".zip") {
         extract_zip(data, dest)
     } else if url.ends_with(".tar.gz") || url.ends_with(".tgz") {
@@ -410,12 +411,10 @@ fn extract(data: &[u8], url: &str, dest: &PathBuf) -> anyhow::Result<()> {
     } else if url.ends_with(".tar.xz") {
         extract_tar_xz(data, dest)
     } else if url.ends_with(".exe") {
-        // Single executable — write it directly
         let filename = url.split('/').last().unwrap_or("bin.exe");
         std::fs::write(dest.join(filename), data)?;
         Ok(())
     } else {
-        // Single binary with no extension (e.g. jq linux)
         let filename = url.split('/').last().unwrap_or("bin");
         std::fs::write(dest.join(filename), data)?;
         Ok(())
@@ -425,9 +424,11 @@ fn extract(data: &[u8], url: &str, dest: &PathBuf) -> anyhow::Result<()> {
 fn extract_zip(data: &[u8], dest: &PathBuf) -> anyhow::Result<()> {
     use std::io::Cursor;
     let mut archive = zip::ZipArchive::new(Cursor::new(data))?;
-    for i in 0..archive.len() {
+    let total       = archive.len();
+    for i in 0..total {
         let mut file     = archive.by_index(i)?;
         let out_path = dest.join(file.name());
+        print_extract_progress(i + 1, total);
         if file.name().ends_with('/') {
             std::fs::create_dir_all(&out_path)?;
         } else {
@@ -436,6 +437,7 @@ fn extract_zip(data: &[u8], dest: &PathBuf) -> anyhow::Result<()> {
             std::io::copy(&mut file, &mut out)?;
         }
     }
+    clear_progress_line();
     Ok(())
 }
 
@@ -443,15 +445,29 @@ fn extract_tar_gz(data: &[u8], dest: &PathBuf) -> anyhow::Result<()> {
     use std::io::Cursor;
     let gz      = flate2::read::GzDecoder::new(Cursor::new(data));
     let mut tar = tar::Archive::new(gz);
-    tar.unpack(dest)?;
-    Ok(())
+    unpack_tar_with_progress(&mut tar, dest)
 }
 
 fn extract_tar_xz(data: &[u8], dest: &PathBuf) -> anyhow::Result<()> {
     use std::io::Cursor;
     let xz      = xz2::read::XzDecoder::new(Cursor::new(data));
     let mut tar = tar::Archive::new(xz);
-    tar.unpack(dest)?;
+    unpack_tar_with_progress(&mut tar, dest)
+}
+
+fn unpack_tar_with_progress<R: std::io::Read>(
+    tar: &mut tar::Archive<R>,
+    dest: &PathBuf,
+) -> anyhow::Result<()> {
+    let mut count = 0usize;
+    for entry in tar.entries()? {
+        let mut entry = entry?;
+        entry.unpack_in(dest)?;
+        count += 1;
+        print!("\r   {} files extracted...", count);
+        std::io::stdout().flush().ok();
+    }
+    clear_progress_line();
     Ok(())
 }
 
@@ -460,7 +476,6 @@ fn extract_tar_xz(data: &[u8], dest: &PathBuf) -> anyhow::Result<()> {
 fn create_shim(install_dir: &PathBuf, bin: &BinEntry) -> anyhow::Result<()> {
     let bin_dir    = rshell_bin_dir();
     std::fs::create_dir_all(&bin_dir)?;
-
     let actual_bin = install_dir.join(&bin.path);
     let shim_path  = bin_dir.join(&bin.shim);
 
@@ -476,13 +491,10 @@ fn create_shim(install_dir: &PathBuf, bin: &BinEntry) -> anyhow::Result<()> {
 
     #[cfg(windows)]
     {
-        // .cmd wrapper so it works from any shell
-        let stem    = bin.shim.trim_end_matches(".exe").trim_end_matches(".cmd");
+        let stem     = bin.shim.trim_end_matches(".exe").trim_end_matches(".cmd");
         let cmd_shim = bin_dir.join(format!("{}.cmd", stem));
         let content  = format!("@echo off\n\"{}\" %*\n", actual_bin.display());
         std::fs::write(&cmd_shim, &content)?;
-
-        // Also copy the binary directly for non-cmd contexts
         if actual_bin.exists() && !shim_path.exists() {
             let _ = std::fs::copy(&actual_bin, &shim_path);
         }
@@ -502,6 +514,77 @@ fn read_meta(dir: &PathBuf) -> anyhow::Result<Meta> {
     Ok(serde_json::from_str(&std::fs::read_to_string(dir.join("meta.json"))?)?)
 }
 
+// ── Progress bars ─────────────────────────────────────────────────────────────
+
+fn make_bar(percent: usize) -> String {
+    let filled = (percent * BAR_WIDTH) / 100;
+    let empty  = BAR_WIDTH.saturating_sub(filled);
+    format!(
+        "{}{}{}{}",
+        BAR_OPEN,
+        FILLED_CHAR.repeat(filled),
+        EMPTY_CHAR.repeat(empty),
+        BAR_CLOSE,
+    )
+}
+
+fn print_download_progress(downloaded: u64, total: Option<u64>) {
+    match total {
+        Some(t) if t > 0 => {
+            let percent  = ((downloaded * 100) / t) as usize;
+            let dl_mb    = downloaded as f64 / 1_048_576.0;
+            let total_mb = t          as f64 / 1_048_576.0;
+            print!("\r   {} {}%  {:.1}/{:.1} MB", make_bar(percent), percent, dl_mb, total_mb);
+        }
+        _ => {
+            let dl_mb = downloaded as f64 / 1_048_576.0;
+            print!("\r   ⬇️  {:.1} MB downloaded...", dl_mb);
+        }
+    }
+    std::io::stdout().flush().ok();
+}
+
+fn print_extract_progress(current: usize, total: usize) {
+    if total == 0 { return; }
+    let percent = (current * 100) / total;
+    print!("\r   {} {}%  ({}/{})", make_bar(percent), percent, current, total);
+    std::io::stdout().flush().ok();
+}
+
+fn print_uninstall_progress(current: usize, total: usize, filename: &str) {
+    if total == 0 { return; }
+    let percent = (current * 100) / total;
+    let name    = if filename.len() > 25 {
+        format!("...{}", &filename[filename.len() - 22..])
+    } else {
+        filename.to_string()
+    };
+    print!("\r   {} {}%  {}", make_bar(percent), percent, name);
+    std::io::stdout().flush().ok();
+}
+
+fn clear_progress_line() {
+    print!("\r{}\r", " ".repeat(70));
+    std::io::stdout().flush().ok();
+}
+
+// ── File helpers ──────────────────────────────────────────────────────────────
+
+fn collect_files(dir: &PathBuf) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                files.extend(collect_files(&path));
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files
+}
+
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
 fn rshell_dir() -> PathBuf {
@@ -510,7 +593,7 @@ fn rshell_dir() -> PathBuf {
         .join(".rshell")
 }
 
-pub fn rshell_bin_dir() -> PathBuf { rshell_dir().join("bin") }
-fn rshell_packages_dir() -> PathBuf { rshell_dir().join("packages") }
+pub fn rshell_bin_dir()    -> PathBuf { rshell_dir().join("bin") }
+fn rshell_packages_dir()   -> PathBuf { rshell_dir().join("packages") }
 fn package_dir(name: &str) -> PathBuf { rshell_packages_dir().join(name) }
-fn registry_cache_path() -> PathBuf { rshell_dir().join("registry_cache.json") }
+fn registry_cache_path()   -> PathBuf { rshell_dir().join("registry_cache.json") }

@@ -4,3 +4,5 @@
     ██╔══██╗╚════██║██╔══██║██╔══╝  ██║     ██║     
     ██║  ██║███████║██║  ██║███████╗███████╗███████╗
     ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝
+
+"https://raw.githubusercontent.com/JackMagee21/RSHELL/main/registry/registry.json";
