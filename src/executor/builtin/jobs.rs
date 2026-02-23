@@ -15,16 +15,16 @@ pub fn builtin_jobs(shell: &mut Shell) -> i32 {
 
 pub fn builtin_fg(shell: &mut Shell, args: &[String]) -> i32 {
     let job_id = get_job_id(shell, args);
-    let (pid, command) = match job_id.and_then(|id| shell.jobs.get(&id)) {
+    let (_pid, command) = match job_id.and_then(|id| shell.jobs.get(&id)) {
         Some(job) => (job.pid, job.command.clone()),
         None => { eprintln!("fg: no such job"); return 1; }
     };
     println!("{}", command);
     #[cfg(unix)]
     {
-        unsafe { libc::kill(pid as i32, libc::SIGCONT); }
+        unsafe { libc::kill(_pid as i32, libc::SIGCONT); }
         let mut status = 0i32;
-        unsafe { libc::waitpid(pid as i32, &mut status, 0); }
+        unsafe { libc::waitpid(_pid as i32, &mut status, 0); }
         if let Some(id) = job_id { shell.jobs.remove(&id); }
         if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) } else { 1 }
     }
@@ -34,12 +34,12 @@ pub fn builtin_fg(shell: &mut Shell, args: &[String]) -> i32 {
 
 pub fn builtin_bg(shell: &mut Shell, args: &[String]) -> i32 {
     let job_id = get_job_id(shell, args);
-    let (pid, command) = match job_id.and_then(|id| shell.jobs.get_mut(&id)) {
+    let (_pid, command) = match job_id.and_then(|id| shell.jobs.get_mut(&id)) {
         Some(job) => { job.status = JobStatus::Running; (job.pid, job.command.clone()) }
         None => { eprintln!("bg: no such job"); return 1; }
     };
     #[cfg(unix)]
-    unsafe { libc::kill(pid as i32, libc::SIGCONT); }
+    unsafe { libc::kill(_pid as i32, libc::SIGCONT); }
     println!("[{}] {}", job_id.unwrap_or(0), command);
     0
 }
@@ -52,8 +52,8 @@ pub fn builtin_kill(shell: &mut Shell, args: &[String]) -> i32 {
             Ok(n) => n,
             Err(_) => { eprintln!("kill: invalid job id"); return 1; }
         };
-        if let Some(job) = shell.jobs.get(&id) {
-            #[cfg(unix)] unsafe { libc::kill(job.pid as i32, libc::SIGTERM); }
+        if let Some(_job) = shell.jobs.get(&id) {
+            #[cfg(unix)] unsafe { libc::kill(_job.pid as i32, libc::SIGTERM); }
             #[cfg(windows)] eprintln!("kill: not fully supported on Windows");
             shell.jobs.remove(&id);
         } else { eprintln!("kill: no such job: {}", id); return 1; }

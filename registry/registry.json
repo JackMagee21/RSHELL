@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "packages": {
+    "ripgrep": {
+      "description": "Fast grep replacement (rg)",
+      "version": "14.1.0",
+      "windows": {
+        "url": "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-pc-windows-msvc.zip",
+        "bin": "ripgrep-14.1.0-x86_64-pc-windows-msvc/rg.exe",
+        "shim": "rg.exe"
+      },
+      "linux": {
+        "url": "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz",
+        "bin": "ripgrep-14.1.0-x86_64-unknown-linux-musl/rg",
+        "shim": "rg"
+      }
+    },
+    "fd": {
+      "description": "Fast find replacement",
+      "version": "10.1.0",
+      "windows": {
+        "url": "https://github.com/sharkdp/fd/releases/download/v10.1.0/fd-v10.1.0-x86_64-pc-windows-msvc.zip",
+        "bin": "fd-v10.1.0-x86_64-pc-windows-msvc/fd.exe",
+        "shim": "fd.exe"
+      },
+      "linux": {
+        "url": "https://github.com/sharkdp/fd/releases/download/v10.1.0/fd-v10.1.0-x86_64-unknown-linux-musl.tar.gz",
+        "bin": "fd-v10.1.0-x86_64-unknown-linux-musl/fd",
+        "shim": "fd"
+      }
+    },
+    "bat": {
+      "description": "cat with syntax highlighting",
+      "version": "0.24.0",
+      "windows": {
+        "url": "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-x86_64-pc-windows-msvc.zip",
+        "bin": "bat-v0.24.0-x86_64-pc-windows-msvc/bat.exe",
+        "shim": "bat.exe"
+      },
+      "linux": {
+        "url": "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-x86_64-unknown-linux-musl.tar.gz",
+        "bin": "bat-v0.24.0-x86_64-unknown-linux-musl/bat",
+        "shim": "bat"
+      }
+    },
+    "fzf": {
+      "description": "Fuzzy finder",
+      "version": "0.54.3",
+      "windows": {
+        "url": "https://github.com/junegunn/fzf/releases/download/v0.54.3/fzf-0.54.3-windows_amd64.zip",
+        "bin": "fzf.exe",
+        "shim": "fzf.exe"
+      },
+      "linux": {
+        "url": "https://github.com/junegunn/fzf/releases/download/v0.54.3/fzf-0.54.3-linux_amd64.tar.gz",
+        "bin": "fzf",
+        "shim": "fzf"
+      }
+    },
+    "delta": {
+      "description": "Better git diff viewer",
+      "version": "0.17.0",
+      "windows": {
+        "url": "https://github.com/dandavison/delta/releases/download/0.17.0/delta-0.17.0-x86_64-pc-windows-msvc.zip",
+        "bin": "delta-0.17.0-x86_64-pc-windows-msvc/delta.exe",
+        "shim": "delta.exe"
+      },
+      "linux": {
+        "url": "https://github.com/dandavison/delta/releases/download/0.17.0/delta-0.17.0-x86_64-unknown-linux-musl.tar.gz",
+        "bin": "delta-0.17.0-x86_64-unknown-linux-musl/delta",
+        "shim": "delta"
+      }
+    }
+  }
+}

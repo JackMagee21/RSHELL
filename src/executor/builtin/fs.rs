@@ -207,17 +207,17 @@ pub fn builtin_touch(args: &[String]) -> i32 {
     code
 }
 
-pub fn builtin_chmod(args: &[String]) -> i32 {
+pub fn builtin_chmod(_args: &[String]) -> i32 {
     #[cfg(windows)]
     { eprintln!("chmod: not supported on Windows"); return 1; }
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if args.len() < 3 { eprintln!("usage: chmod <mode> <file> [file2 ...]"); return 1; }
-        let mode_str = &args[1];
+        if _args.len() < 3 { eprintln!("usage: chmod <mode> <file> [file2 ...]"); return 1; }
+        let mode_str = &_args[1];
         let mut code = 0;
-        for file in &args[2..] {
+        for file in &_args[2..] {
             let path = std::path::Path::new(file);
             if !path.exists() { eprintln!("chmod: {}: no such file or directory", file); code = 1; continue; }
             let current = match std::fs::metadata(path) {

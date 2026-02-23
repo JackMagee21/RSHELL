@@ -155,7 +155,7 @@ fn capture_stdout_pipe(shell: &mut Shell, args: &[String]) -> Vec<u8> {
 
     #[cfg(windows)]
     {
-        use std::os::windows::io::{FromRawHandle, IntoRawHandle};
+        use std::os::windows::io::FromRawHandle;
         use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
         use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
         use windows_sys::Win32::System::Console::{

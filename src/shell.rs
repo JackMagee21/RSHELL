@@ -67,6 +67,21 @@ impl Shell {
         shell.aliases.insert("..".to_string(),  "cd ..".to_string());
         shell.aliases.insert("...".to_string(), "cd ../..".to_string());
 
+        // Add ~/.rshell/bin to PATH so installed packages are available
+        let rshell_bin = crate::executor::builtin::pkg::rshell_bin_dir();
+        let rshell_bin_str = rshell_bin.to_string_lossy().to_string();
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        if !current_path.contains(&rshell_bin_str) {
+            #[cfg(windows)]
+            let sep = ";";
+            #[cfg(not(windows))]
+            let sep = ":";
+            let new_path = format!("{}{}{}", rshell_bin_str, sep, current_path);
+            unsafe { std::env::set_var("PATH", &new_path); }
+            shell.env.insert("PATH".to_string(), new_path);
+        }
+        let _ = std::fs::create_dir_all(&rshell_bin);
+
         shell
     }
 
@@ -152,24 +167,24 @@ impl Shell {
     }
 
     fn parse_inline_function(&mut self, input: &str, name: String) -> Result<()> {
-    let open = match input.find('{') {
-        Some(i) => i,
-        None => {
-            self.functions.insert(name.clone(), ShellFunction { body: vec![] });
-            self.save_functions(); // ← add this
-            return Ok(());
-        }
-    };
-    let close = input.rfind('}').unwrap_or(input.len());
-    let body_str = &input[open + 1..close];
-    let body: Vec<String> = body_str
-        .split(';')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    self.functions.insert(name.clone(), ShellFunction { body });
-    self.save_functions(); // ← add this
-    Ok(())
+        let open = match input.find('{') {
+            Some(i) => i,
+            None => {
+                self.functions.insert(name.clone(), ShellFunction { body: vec![] });
+                self.save_functions();
+                return Ok(());
+            }
+        };
+        let close = input.rfind('}').unwrap_or(input.len());
+        let body_str = &input[open + 1..close];
+        let body: Vec<String> = body_str
+            .split(';')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        self.functions.insert(name.clone(), ShellFunction { body });
+        self.save_functions();
+        Ok(())
     }
 
     pub fn expand_history(&self, input: &str) -> String {
@@ -243,7 +258,7 @@ impl Shell {
         format!("\x1b[34m{}\x1b[0m{} {} ", short, git_branch, code_indicator)
     }
 
-    /// Save aliases to ~/.myshellrc (replaces existing alias lines)
+    /// Save aliases to ~/.myshellrc
     pub fn save_aliases(&self) {
         let rc_path = dirs::home_dir()
             .unwrap_or_default()
@@ -251,14 +266,12 @@ impl Shell {
 
         let existing = std::fs::read_to_string(&rc_path).unwrap_or_default();
 
-        // Keep all lines that aren't alias lines
         let mut lines: Vec<String> = existing
             .lines()
             .filter(|l| !l.trim_start().starts_with("alias "))
             .map(|l| l.to_string())
             .collect();
 
-        // Append current aliases sorted
         if !self.aliases.is_empty() {
             lines.push(String::new());
             lines.push("# aliases".to_string());
@@ -275,7 +288,7 @@ impl Shell {
         }
     }
 
-    /// Save functions to ~/.myshellrc (replaces existing function definitions)
+    /// Save functions to ~/.myshellrc
     pub fn save_functions(&self) {
         let rc_path = dirs::home_dir()
             .unwrap_or_default()
@@ -283,7 +296,6 @@ impl Shell {
 
         let existing = std::fs::read_to_string(&rc_path).unwrap_or_default();
 
-        // Strip old function blocks
         let mut lines: Vec<String> = Vec::new();
         let mut in_func = false;
         for line in existing.lines() {
@@ -298,7 +310,6 @@ impl Shell {
             lines.push(line.to_string());
         }
 
-        // Append current functions sorted
         if !self.functions.is_empty() {
             lines.push(String::new());
             let mut sorted: Vec<(&String, &ShellFunction)> = self.functions.iter().collect();
@@ -318,27 +329,9 @@ impl Shell {
             eprintln!("myshell: warning: could not save functions: {}", e);
         }
     }
-
-let rshell_bin = crate::executor::builtin::rshell_bin_dir();
-let rshell_bin_str = rshell_bin.to_string_lossy().to_string();
-
-// Get current PATH and prepend ~/.rshell/bin if not already there
-let current_path = std::env::var("PATH").unwrap_or_default();
-if !current_path.contains(&rshell_bin_str) {
-    #[cfg(windows)]
-    let sep = ";";
-    #[cfg(not(windows))]
-    let sep = ":";
-
-    let new_path = format!("{}{}{}", rshell_bin_str, sep, current_path);
-    unsafe { std::env::set_var("PATH", &new_path); }
-    shell.env.insert("PATH".to_string(), new_path);
 }
 
-// Create ~/.rshell/bin if it doesn't exist yet
-let _ = std::fs::create_dir_all(&rshell_bin);
-    
-}
+// ── Free functions ────────────────────────────────────────────────────────────
 
 pub fn parse_function_start(line: &str) -> Option<String> {
     let line = line.trim();

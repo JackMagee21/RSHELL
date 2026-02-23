@@ -4,12 +4,11 @@ mod find;
 mod fs;
 mod grep;
 mod jobs;
-mod pkg;
+pub mod pkg;
 mod test;
 mod text;
 mod util;
 
-pub use pkg::rshell_bin_dir;
 pub use util::command_not_found;
 
 use crate::shell::Shell;

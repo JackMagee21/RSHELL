@@ -9,7 +9,7 @@ use std::path::PathBuf;
 // ── Registry URL ──────────────────────────────────────────────────────────────
 // Change this to your own GitHub raw URL once you push registry.json
 const REGISTRY_URL: &str =
-    "https://raw.githubusercontent.com/YOURUSERNAME/YOURREPO/main/registry/registry.json";
+    "https://raw.githubusercontent.com/JackMagee21/RSHELL/blob/main/registry/registry.json";
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -274,9 +274,9 @@ fn fetch_registry() -> anyhow::Result<Registry> {
     }
 
     // Fetch from network
-    let content = ureq::get(REGISTRY_URL)
-        .call()?
-        .into_string()?;
+    let content = attohttpc::get(REGISTRY_URL)
+    .send()?
+    .text()?;
 
     // Cache it
     let _ = std::fs::create_dir_all(cache.parent().unwrap_or(&cache));
@@ -299,10 +299,9 @@ fn platform_pkg(pkg: &Package) -> Option<PlatformPkg> {
 // ── Download ──────────────────────────────────────────────────────────────────
 
 fn download(url: &str) -> anyhow::Result<Vec<u8>> {
-    let response = ureq::get(url).call()?;
-    let mut bytes = Vec::new();
-    use std::io::Read;
-    response.into_reader().read_to_end(&mut bytes)?;
+   let bytes = attohttpc::get(url)
+    .send()?
+    .bytes()?;
     Ok(bytes)
 }
 
