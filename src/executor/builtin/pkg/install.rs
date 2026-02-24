@@ -1,8 +1,15 @@
-// src/executor/builtin/pkg/install.rs
-//
-// Low-level installation mechanics: HTTP download, archive extraction,
-// shim/symlink creation, and filesystem helpers used during uninstall.
-
+/**
+ * PATH: src/executor/builtin/pkg/install.rs
+ * 
+ * This file impliments a installation engine of the package manager,
+ * it handles the concrete mechanics of turning a package URL into:
+ * 
+ * -> Downloaded bytes
+ * -> Extracted files
+ * -> Exectuable binaries
+ * -> User-visible shims/symlinks
+ *
+ */
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -15,6 +22,7 @@ use crate::executor::builtin::pkg::{
 // ── Download ──────────────────────────────────────────────────────────────────
 
 pub fn download(url: &str) -> anyhow::Result<Vec<u8>> {
+    /* HTTP REQUEST */
     let response = attohttpc::get(url).send()?;
 
     let total = response
@@ -22,7 +30,13 @@ pub fn download(url: &str) -> anyhow::Result<Vec<u8>> {
         .get("content-length")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok());
-
+    /*
+     * let mut buf + let mut chunk
+     * -> manage memory and byte accumlation
+     * 
+     * let mut downloaded
+     * -> track how much has been downloaded
+     */
     let mut reader     = response;
     let mut buf        = Vec::new();
     let mut downloaded = 0u64;
@@ -30,14 +44,17 @@ pub fn download(url: &str) -> anyhow::Result<Vec<u8>> {
 
     use std::io::Read;
     loop {
+        /* Streaming bytes in response */
         let n = reader.read(&mut chunk)?;
         if n == 0 { break; }
+        /* raw byte buffering logic */
         buf.extend_from_slice(&chunk[..n]);
+        /* Tracking progress */
         downloaded += n as u64;
         print_download_progress(downloaded, total);
     }
     clear_progress_line();
-    Ok(buf)
+    Ok(buf) // returns raw bytes
 }
 
 // ── Extraction ────────────────────────────────────────────────────────────────
