@@ -329,6 +329,35 @@ impl Shell {
             eprintln!("myshell: warning: could not save functions: {}", e);
         }
     }
+
+    pub fn load_history(&mut self) {
+        let path = dirs::home_dir()
+            .unwrap_or_default()
+            .join(".myshell_history");
+
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            self.history = content
+                .lines()
+                .filter(|l| !l.is_empty())
+                .map(|l| l.to_string())
+                .collect();
+        }
+    }
+
+    pub fn save_history_line(&self, line: &str) {
+        let path = dirs::home_dir()
+            .unwrap_or_default()
+            .join(".myshell_history");
+
+        use std::io::Write;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            let _ = writeln!(file, "{}", line);
+        }
+    }
 }
 
 // ── Free functions ────────────────────────────────────────────────────────────
