@@ -13,12 +13,16 @@ thiserror = "1"
 reedline = "0.30"
 crossterm = "0.27"
 colored = "2"
+serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 dirs = "5"
 glob = "0.3"
 nu-ansi-term = "0.50"
 libc = "0.2"
 filetime = "0.2"
+serde_json = "1.0"
+flate2 = "1.0"
+tar = "0.4"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 attohttpc = { version = "0.30.1", features = ["tls-rustls-native-roots"] }
 xz2 = "0.1.7"
