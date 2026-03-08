@@ -293,7 +293,7 @@ fn write_pipe_tmp(data: &[u8]) {
 }
 
 fn pipe_in_tmp() -> std::path::PathBuf {
-    std::env::temp_dir().join("rshell_pipe_in.tmp")
+    std::env::temp_dir().join(format!("rshell_pipe_{}.tmp", std::process::id()))
 }
 
 fn report_spawn_error(e: &std::io::Error) {
