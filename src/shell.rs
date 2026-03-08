@@ -91,6 +91,9 @@ impl Shell {
             #[cfg(unix)]
             {
                 let result = unsafe { libc::waitpid(job.pid as i32, std::ptr::null_mut(), libc::WNOHANG)};
+                if result > 0 {
+                    done.push(*id);
+                }
             }
             #[cfg(windows)]
             {
