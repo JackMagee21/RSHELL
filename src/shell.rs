@@ -90,8 +90,7 @@ impl Shell {
         for (id, job) in &self.jobs {
             #[cfg(unix)]
             {
-                let alive = unsafe { libc::kill(job.pid as i32, 0) } == 0;
-                if !alive { done.push(*id); }
+                let result = unsafe { libc::waitpid(job.pid as i32, std::ptr::null_mut(), libc::WNOHANG)};
             }
             #[cfg(windows)]
             {
