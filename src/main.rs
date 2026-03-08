@@ -27,6 +27,7 @@ fn main() {
     setup_signals();
 
     let mut shell = Shell::new();
+    shell.load_history();
 
     if let Err(e) = shell.load_rc() {
         eprintln!("myshell: warning: failed to load .myshellrc: {e}");
@@ -77,6 +78,7 @@ fn main() {
         if input.is_empty() { continue; }
 
         shell.history.push(input.clone());
+        shell.save_history_line(&input);
 
         if let Err(e) = shell.eval(&input) {
             eprintln!("\x1b[31mmyshell: {e}\x1b[0m");
