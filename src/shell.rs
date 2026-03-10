@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use anyhow::Result;
 
+const MAX_HISTORY: usize = 1000;
+
 pub struct Job {
     pub id: usize,
     pub pid: u32,
@@ -347,19 +349,33 @@ impl Shell {
     }
 
     pub fn save_history_line(&self, line: &str) {
-        let path = dirs::home_dir()
-            .unwrap_or_default()
-            .join(".myshell_history");
+    let path = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".myshell_history");
 
-        use std::io::Write;
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
+    use std::io::Write;
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
         {
             let _ = writeln!(file, "{}", line);
         }
+
+    // Trim history file if it exceeds MAX_HISTORY lines
+    if self.history.len() >= MAX_HISTORY {
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            let trimmed: Vec<&str> = content.lines()
+                .rev()
+                .take(MAX_HISTORY)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            let _ = std::fs::write(&path, trimmed.join("\n") + "\n");
+        }
     }
+}
 }
 
 // ── Free functions ────────────────────────────────────────────────────────────
