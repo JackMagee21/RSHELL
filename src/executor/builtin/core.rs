@@ -281,44 +281,82 @@ fn print_dir_stack(shell: &Shell) {
 pub fn builtin_help() -> i32 {
     println!(r#"
 ╔══════════════════════════════════════════════╗
-║         myshell  —  Built-in Commands        ║
+║          rshell  —  Built-in Commands        ║
 ╚══════════════════════════════════════════════╝
 
-  cd [dir]           Change directory (- for previous, ~ for home)
-  pwd                Print working directory
-  ls [-la] [dir]     List directory contents
-  echo [-n] [args]   Print text
-  export [VAR=VAL]   Set or show environment variables
-  unset VAR          Remove environment variable
-  alias [k=v]        Set or show aliases
-  unalias NAME       Remove alias
-  history            Show command history
-  source FILE        Execute commands from a file
-  clear / cls        Clear the screen
-  which CMD          Show path to a command
-  pushd [dir]        Push directory onto stack and cd
-  popd               Pop directory stack and cd back
-  dirs               Show directory stack
-  grep [-rnivc] PAT  Search for pattern in files
-  help               Show this help
-  exit               Exit myshell
+  Navigation:
+    cd [dir]           Change directory (- for previous, ~ for home)
+    pwd                Print working directory
+    pushd [dir]        Push directory onto stack and cd
+    popd               Pop directory stack and cd back
+    dirs               Show directory stack
+
+  Files:
+    ls [-la] [dir]     List directory contents
+    mkdir [-p] DIR     Create directory
+    rm [-rf] FILE      Remove file or directory
+    cp [-r] SRC DEST   Copy file or directory
+    mv SRC DEST        Move or rename file
+    cat FILE           Print file contents
+    touch FILE         Create or update file timestamp
+    chmod MODE FILE    Change file permissions
+    ln [-s] SRC DEST   Create hard or symbolic link
+
+  Search:
+    grep [-rnivc] PAT  Search for pattern in files
+    find [DIR] [-name] Search for files
+
+  Text Processing:
+    head [-n] FILE     Show first lines of file
+    tail [-n] FILE     Show last lines of file
+    wc [-lwc] FILE     Count lines, words, or characters
+    sort [-rn] FILE    Sort lines
+    uniq [-c] FILE     Remove duplicate lines
+    xargs CMD          Build commands from stdin
+    env                Show environment variables
+
+  Shell:
+    echo [-n] [args]   Print text
+    export [VAR=VAL]   Set or show environment variables
+    unset VAR          Remove environment variable
+    alias [k=v]        Set or show aliases
+    unalias NAME       Remove alias
+    history            Show command history
+    source FILE        Execute commands from a file
+    functions          List defined functions
+    which CMD          Show path to a command
+    clear / cls        Clear the screen
+    sleep SECS         Wait for N seconds
+    help               Show this help
+    exit               Exit rshell
+
+  Editor:
+    mini FILE          Open file in built-in editor
+                       Ctrl+S save  Ctrl+Z undo  Ctrl+Q quit
+
+  Package Manager:
+    pkg list           List installed packages
+    install PKG        Install a package
+    uninstall PKG      Remove a package
 
   Job Control:
-    jobs             List background jobs
-    fg [%id]         Bring job to foreground
-    bg [%id]         Resume stopped job in background
-    kill [%id|pid]   Kill a job or process
-    cmd &            Run in background  Ctrl+Z suspend
+    jobs               List background jobs
+    fg [%id]           Bring job to foreground
+    bg [%id]           Resume stopped job in background
+    kill [%id|pid]     Kill a job or process
+    cmd &              Run command in background
 
   Scripting:
     if / for / while / function
-    echo $((2 + 2))   arithmetic
-    $VAR / $VARNAME     variable expansion
-    *.rs  ?  [abc]    glob patterns
+    echo $((2 + 2))    arithmetic expansion
+    $(command)         command substitution
+    $VAR / ${{VAR}}      variable expansion
+    $# $@ $* $? $$     special variables
+    *.rs  ?  [abc]     glob patterns
 
   Operators:
-    |  pipe   &&  and   ||  or   ;  sequence   &  background
-    >  stdout  >>  append  <  stdin  2>  stderr
+    |   pipe      &&  and    ||  or    ;  sequence   &  background
+    >   stdout    >>  append  <  stdin  2>  stderr
 "#);
     0
 }

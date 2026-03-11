@@ -39,8 +39,10 @@ pub fn expand_arithmetic(shell: &Shell, s: &str) -> String {
     result
 }
 
-/// Expand all $VAR, ${VAR}, and $? references in a string.
+/// Expand all $VAR, ${VAR}, $?, $@, $#, $*, $$, and $(cmd) references in a string.
 pub fn expand_vars(shell: &Shell, s: &str) -> String {
+    // First handle command substitution $(...) — must be done before char-by-char pass
+    let s = expand_command_substitution(shell, s);
     let mut result = String::new();
     let mut chars  = s.chars().peekable();
 
@@ -68,7 +70,31 @@ pub fn expand_vars(shell: &Shell, s: &str) -> String {
                 result.push_str(&shell.last_exit_code.to_string());
             }
 
-            // $VAR — unbraced variable name
+            // $$ — current process id
+            Some(&'$') => {
+                chars.next();
+                result.push_str(&std::process::id().to_string());
+            }
+
+            // $# — number of positional args
+            Some(&'#') => {
+                chars.next();
+                let count = (1..=9)
+                    .filter(|i| shell.env.contains_key(&i.to_string()))
+                    .count();
+                result.push_str(&count.to_string());
+            }
+
+            // $@ and $* — all positional args space-separated
+            Some(&'@') | Some(&'*') => {
+                chars.next();
+                let args: Vec<String> = (1..=9)
+                    .filter_map(|i| shell.env.get(&i.to_string()).cloned())
+                    .collect();
+                result.push_str(&args.join(" "));
+            }
+
+            // $VAR / $1..$9 — unbraced variable name or positional param
             Some(&ch) if ch.is_alphanumeric() || ch == '_' => {
                 let mut var = String::new();
                 while let Some(&ch) = chars.peek() {
@@ -87,6 +113,68 @@ pub fn expand_vars(shell: &Shell, s: &str) -> String {
         }
     }
 
+    result
+}
+
+/// Expand $(command) substitutions by running the command and capturing output.
+fn expand_command_substitution(shell: &Shell, s: &str) -> String {
+    let mut result = String::new();
+    let mut rest = s;
+
+    while let Some(start) = rest.find("$(") {
+        // Make sure it's not $(( arithmetic — that's handled separately
+        if rest[start..].starts_with("$((") {
+            // Copy up to and including $((  and skip ahead so we don't loop on it
+            let end = start + 3;
+            result.push_str(&rest[..end]);
+            rest = &rest[end..];
+            continue;
+        }
+
+        result.push_str(&rest[..start]);
+        let inner_start = start + 2;
+
+        // Find the matching closing ) — handle nesting
+        let inner = &rest[inner_start..];
+        let mut depth = 1;
+        let mut end = 0;
+        for (i, ch) in inner.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 { end = i; break; }
+                }
+                _ => {}
+            }
+        }
+
+        if depth != 0 {
+            // Unmatched $( — pass through literally
+            result.push_str("$(");
+            rest = &rest[inner_start..];
+            continue;
+        }
+
+        let cmd_str = &inner[..end];
+        rest = &rest[inner_start + end + 1..];
+
+        // Run the command and capture stdout
+        let output = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" })
+            .args(if cfg!(windows) { vec!["/C", cmd_str] } else { vec!["-c", cmd_str] })
+            .envs(&shell.env)
+            .output();
+
+        match output {
+            Ok(out) => {
+                let text = String::from_utf8_lossy(&out.stdout);
+                result.push_str(text.trim_end_matches('\n'));
+            }
+            Err(_) => {} // silently expand to empty on failure
+        }
+    }
+
+    result.push_str(rest);
     result
 }
 

@@ -67,8 +67,15 @@ pub fn run(shell: &mut Shell, cmd: Command) -> Result<i32> {
 
         Command::For { var, items, body } => {
             let mut last_code = 0;
-            for item in items {
-                let item = expand_vars(shell, &item);
+            // Expand vars then globs in each item, flattening glob matches
+            let expanded_items: Vec<String> = items
+                .iter()
+                .flat_map(|item| {
+                    let item = expand_vars(shell, item);
+                    crate::glob::expand(&item)
+                })
+                .collect();
+            for item in expanded_items {
                 shell.env.insert(var.clone(), item.clone());
                 unsafe { std::env::set_var(&var, &item); }
                 last_code = run_block(shell, body.clone())?;

@@ -77,6 +77,14 @@ impl Shell {
             exit_on_error: false,
         };
 
+        // Set $0 to the shell executable name
+        let exe = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_else(|| "rshell".to_string());
+        shell.env.insert("0".to_string(), exe.clone());
+        unsafe { std::env::set_var("0", &exe); }
+
         // Default aliases
         shell.aliases.insert("ll".to_string(),  "ls -la".to_string());
         shell.aliases.insert("la".to_string(),  "ls -a".to_string());
