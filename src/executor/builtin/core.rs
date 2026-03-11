@@ -278,19 +278,48 @@ fn print_dir_stack(shell: &Shell) {
     println!();
 }
 
-pub fn builtin_help() -> i32 {
-    println!(r#"
+pub fn builtin_help_topic(args: &[String]) -> i32 {
+    let topic = args.get(1).map(|s| s.as_str()).unwrap_or("overview");
+    help_topic(topic)
+}
+
+fn help_topic(topic: &str) -> i32 {
+    match topic {
+        "overview" | "help" => {
+            println!(r#"
 ╔══════════════════════════════════════════════╗
 ║          rshell  —  Built-in Commands        ║
 ╚══════════════════════════════════════════════╝
 
+  Type 'help <topic>' for details on a topic.
+
+  Topics:
+    help nav          Navigation  (cd, pushd, popd ...)
+    help files        Files       (ls, cp, mv, rm ...)
+    help search       Search      (grep, find)
+    help text         Text        (head, tail, wc, sort ...)
+    help shell        Shell       (alias, export, history ...)
+    help editor       Editor      (mini)
+    help jobs         Job Control (jobs, fg, bg ...)
+    help pkg          Packages    (install, uninstall ...)
+    help scripting    Scripting   (if, for, $VAR, globs ...)
+    help all          Show everything at once
+"#);
+        }
+
+        "nav" | "navigation" => {
+            println!(r#"
   Navigation:
     cd [dir]           Change directory (- for previous, ~ for home)
     pwd                Print working directory
     pushd [dir]        Push directory onto stack and cd
     popd               Pop directory stack and cd back
     dirs               Show directory stack
+"#);
+        }
 
+        "files" | "file" => {
+            println!(r#"
   Files:
     ls [-la] [dir]     List directory contents
     mkdir [-p] DIR     Create directory
@@ -301,62 +330,130 @@ pub fn builtin_help() -> i32 {
     touch FILE         Create or update file timestamp
     chmod MODE FILE    Change file permissions
     ln [-s] SRC DEST   Create hard or symbolic link
+"#);
+        }
 
+        "search" => {
+            println!(r#"
   Search:
-    grep [-rnivc] PAT  Search for pattern in files
-    find [DIR] [-name] Search for files
+    grep [-rnivc] PAT [FILE]   Search for pattern in files
+      -r  recursive   -n  line numbers   -i  ignore case
+      -v  invert      -c  count matches
+    find [DIR] [-name PATTERN] Search for files by name
+"#);
+        }
 
+        "text" => {
+            println!(r#"
   Text Processing:
-    head [-n] FILE     Show first lines of file
-    tail [-n] FILE     Show last lines of file
-    wc [-lwc] FILE     Count lines, words, or characters
-    sort [-rn] FILE    Sort lines
-    uniq [-c] FILE     Remove duplicate lines
-    xargs CMD          Build commands from stdin
-    env                Show environment variables
+    head [-n N] FILE   Show first N lines (default 10)
+    tail [-n N] FILE   Show last N lines (default 10)
+    wc [-lwc] FILE     Count lines (-l), words (-w), chars (-c)
+    sort [-rn] FILE    Sort lines (-r reverse, -n numeric)
+    uniq [-c] FILE     Remove duplicate lines (-c count)
+    xargs CMD          Build and run commands from stdin
+    env                Show all environment variables
+"#);
+        }
 
+        "shell" => {
+            println!(r#"
   Shell:
-    echo [-n] [args]   Print text
+    echo [-n] [args]   Print text (-n no newline)
     export [VAR=VAL]   Set or show environment variables
     unset VAR          Remove environment variable
     alias [k=v]        Set or show aliases
     unalias NAME       Remove alias
     history            Show command history
     source FILE        Execute commands from a file
-    functions          List defined functions
+    functions          List defined shell functions
     which CMD          Show path to a command
     clear / cls        Clear the screen
     sleep SECS         Wait for N seconds
-    help               Show this help
+    help [topic]       Show this help
     exit               Exit rshell
+"#);
+        }
 
+        "editor" | "mini" => {
+            println!(r#"
   Editor:
-    mini FILE          Open file in built-in editor
-                       Ctrl+S save  Ctrl+Z undo  Ctrl+Q quit
+    mini FILE          Open file in built-in text editor
 
-  Package Manager:
-    pkg list           List installed packages
-    install PKG        Install a package
-    uninstall PKG      Remove a package
+    Keybindings:
+      Ctrl+S           Save
+      Ctrl+Z           Undo
+      Ctrl+Q           Quit
+      Arrow keys       Move cursor
+      Home / End       Start / end of line
 
+    Syntax highlighting is applied automatically based on
+    file extension: .rs  .py  .js  .ts  .sh
+"#);
+        }
+
+        "jobs" | "job" => {
+            println!(r#"
   Job Control:
     jobs               List background jobs
     fg [%id]           Bring job to foreground
     bg [%id]           Resume stopped job in background
     kill [%id|pid]     Kill a job or process
     cmd &              Run command in background
+    Ctrl+Z             Suspend foreground job
+"#);
+        }
 
+        "pkg" | "packages" | "package" => {
+            println!(r#"
+  Package Manager:
+    pkg list           List installed packages
+    install PKG        Download and install a package
+    uninstall PKG      Remove an installed package
+"#);
+        }
+
+        "scripting" | "script" => {
+            println!(r#"
   Scripting:
-    if / for / while / function
-    echo $((2 + 2))    arithmetic expansion
-    $(command)         command substitution
-    $VAR / ${{VAR}}      variable expansion
-    $# $@ $* $? $$     special variables
-    *.rs  ?  [abc]     glob patterns
+    Control flow:
+      if CMD; then ... fi
+      if CMD; then ... else ... fi
+      for VAR in ITEMS; do ... done
+      while CMD; do ... done
+      function name() {{ ... }}
+
+    Expansion:
+      $VAR / ${{VAR}}      variable
+      $((2 + 2))         arithmetic
+      $(command)         command substitution
+      $#                 number of arguments
+      $@  $*             all arguments
+      $?                 last exit code
+      $$                 current process id
+
+    Globs:
+      *                  match any characters
+      ?                  match one character
+      [abc]              match character class
+      [a-z]              match character range
 
   Operators:
     |   pipe      &&  and    ||  or    ;  sequence   &  background
     >   stdout    >>  append  <  stdin  2>  stderr
 "#);
+        }
+
+        "all" => {
+            for t in &["nav", "files", "search", "text", "shell", "editor", "jobs", "pkg", "scripting"] {
+                help_topic(t);
+            }
+        }
+
+        _ => {
+            eprintln!("help: unknown topic '{}' — type 'help' for a list of topics", topic);
+            return 1;
+        }
+    }
     0
 }
