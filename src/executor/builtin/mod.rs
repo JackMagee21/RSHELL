@@ -8,7 +8,6 @@ pub mod pkg;
 mod test;
 mod text;
 mod util;
-mod mini;
 
 pub use util::command_not_found;
 
@@ -31,7 +30,7 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "clear" | "cls"   => Some(core::builtin_clear()),
         "sleep"           => Some(core::builtin_sleep(args)),
         "functions"       => Some(core::builtin_functions(shell)),
-        "help"            => Some(core::builtin_help()),
+        "help"            => Some(core::builtin_help_topic(args)),
         "which"           => Some(core::builtin_which(args)),
         "pushd"           => Some(core::builtin_pushd(shell, args)),
         "popd"            => Some(core::builtin_popd(shell)),
@@ -47,9 +46,6 @@ pub fn run_builtin(shell: &mut Shell, args: &[String]) -> Option<i32> {
         "touch"           => Some(fs::builtin_touch(args)),
         "chmod"           => Some(fs::builtin_chmod(args)),
         "ln"              => Some(fs::builtin_ln(args)),
-
-        // ── Mini (Text editior) ────────────────────────────────────────────
-        "mini"            => Some(mini::builtin_mini(args)), 
 
         // ── Search ────────────────────────────────────────────
         "grep"            => Some(grep::builtin_grep(args)),
