@@ -27,7 +27,7 @@ RShell is a fully custom shell written in Rust with its own parser, executor, li
 |----------|--------|
 | Windows (x64) | ✅ Works |
 | Linux (x64, Ubuntu tested) | ✅ Works |
-| macOS | 🤷 Probably works, untested |
+| macOS | ✅ Works, however untested |
 
 ---
 
