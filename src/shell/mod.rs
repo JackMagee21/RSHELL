@@ -60,6 +60,11 @@ pub struct Shell {
 }
 
 impl Shell {
+    pub fn add_history(&mut self, line: String) {
+        self.history.push(line.clone());
+        self.save_history_line(&line);
+    }
+
     pub fn new() -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
         let env: HashMap<String, String> = std::env::vars().collect();

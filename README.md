@@ -325,4 +325,4 @@ Mainly to learn Rust properly — parsers, I/O, cross-platform system calls, the
 ## License
 
 MIT — see [LICENSE](LICENSE).
-> Building from source? See [BUILDING.md](BUILDING.md) for the full guide.
+> Building from source? See [Buliding.md](Buliding.md) for the full guide.

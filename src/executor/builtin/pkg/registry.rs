@@ -45,6 +45,7 @@ pub struct BinEntry {
 pub fn fetch_registry() -> anyhow::Result<Registry> {
     let cache = registry_cache_path();
 
+    // Use cache if it's less than an hour old
     if let Ok(meta) = std::fs::metadata(&cache) {
         if let Ok(modified) = meta.modified() {
             if modified.elapsed().unwrap_or_default().as_secs() < 3600 {
@@ -57,9 +58,14 @@ pub fn fetch_registry() -> anyhow::Result<Registry> {
         }
     }
 
-    let content = attohttpc::get(REGISTRY_URL).send()?.text()?;
+    // Fetch fresh copy
+    let content = ureq::get(REGISTRY_URL)
+        .call()?
+        .into_string()?;
+
     let _ = std::fs::create_dir_all(crate::executor::builtin::pkg::paths::rshell_dir());
     let _ = std::fs::write(&cache, &content);
+
     Ok(serde_json::from_str(&content)?)
 }
 

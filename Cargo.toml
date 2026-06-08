@@ -8,33 +8,33 @@ name = "rSHELL"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1"
-thiserror = "1"
-reedline = "0.30"
-crossterm = "0.27"
-colored = "2"
-serde = { version = "1", features = ["derive"] }
-toml = "0.8"
-dirs = "5"
-glob = "0.3"
+anyhow      = "1.0.100"
+thiserror   = "2.0.17"
+reedline    = "=0.30.0"
+crossterm   = "0.28.1"
+colored     = "2"
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+toml        = "0.8"
+dirs        = "5"
+glob        = "0.3"
 nu-ansi-term = "0.50"
-libc = "0.2"
-filetime = "0.2"
-serde_json = "1.0"
-flate2 = "1.0"
-tar = "0.4"
-zip = { version = "0.6", default-features = false, features = ["deflate"] }
-attohttpc = { version = "0.30.1", features = ["tls-rustls-native-roots"] }
-xz2 = "0.1.7"
-[profile.release]
-opt-level = 3
-strip = true
-ureq = "2.9"
+libc        = "0.2"
+filetime    = "0.2.28"
+flate2      = "1"
+tar         = "0.4.45"
+zip         = { version = "0.6", default-features = false, features = ["deflate"] }
+xz2         = "0.1"
+ureq        = { version = "2.9", features = ["tls"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = [
+windows-sys = { version = "0.61.1", features = [
     "Win32_System_Console",
     "Win32_System_Pipes",
     "Win32_Security",
     "Win32_Foundation",
 ]}
+
+[profile.release]
+opt-level = 3
+strip     = true

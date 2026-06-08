@@ -171,6 +171,7 @@ impl ShellReadline {
             }
             Ok(Signal::CtrlC) => Err(ReadlineError::Interrupted),
             Ok(Signal::CtrlD) => Err(ReadlineError::Eof),
+            
             Err(e) => Err(ReadlineError::Other(e.to_string())),
         }
     }

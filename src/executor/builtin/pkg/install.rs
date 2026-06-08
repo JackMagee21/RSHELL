@@ -22,39 +22,28 @@ use crate::executor::builtin::pkg::{
 // ── Download ──────────────────────────────────────────────────────────────────
 
 pub fn download(url: &str) -> anyhow::Result<Vec<u8>> {
-    /* HTTP REQUEST */
-    let response = attohttpc::get(url).send()?;
+    use std::io::Read;
 
-    let total = response
-        .headers()
-        .get("content-length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<u64>().ok());
-    /*
-     * let mut buf + let mut chunk
-     * -> manage memory and byte accumlation
-     * 
-     * let mut downloaded
-     * -> track how much has been downloaded
-     */
-    let mut reader     = response;
+    let response = ureq::get(url).call()?;
+
+    // ureq doesn't expose content-length directly so we
+    // read into a buffer with progress reported by bytes read
     let mut buf        = Vec::new();
     let mut downloaded = 0u64;
     let mut chunk      = [0u8; 8192];
+    let mut reader     = response.into_reader();
 
-    use std::io::Read;
     loop {
-        /* Streaming bytes in response */
         let n = reader.read(&mut chunk)?;
         if n == 0 { break; }
-        /* raw byte buffering logic */
         buf.extend_from_slice(&chunk[..n]);
-        /* Tracking progress */
         downloaded += n as u64;
-        print_download_progress(downloaded, total);
+        // No total available without content-length header
+        print_download_progress(downloaded, None);
     }
+
     clear_progress_line();
-    Ok(buf) // returns raw bytes
+    Ok(buf)
 }
 
 // ── Extraction ────────────────────────────────────────────────────────────────
