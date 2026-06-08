@@ -1,10 +1,10 @@
 [package]
-name = "new_R_Shell"
+name = "rSHELL"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "new_R_Shell"
+name = "rSHELL"
 path = "src/main.rs"
 
 [dependencies]

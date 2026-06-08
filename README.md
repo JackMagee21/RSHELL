@@ -27,7 +27,7 @@ RShell is a fully custom shell written in Rust with its own parser, executor, li
 |----------|--------|
 | Windows (x64) | ✅ Works |
 | Linux (x64, Ubuntu tested) | ✅ Works |
-| macOS | ✅ Works, however untested |
+| macOS | 🤷 Probably works, untested |
 
 ---
 
@@ -47,7 +47,33 @@ RShell is a fully custom shell written in Rust with its own parser, executor, li
 
 ## Installation
 
-### From source
+### Windows
+
+Run this in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/JackMagee21/RSHELL/main/install.ps1 | iex
+```
+
+If you get an execution policy error, run this first, then try again:
+
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+### Linux
+
+```sh
+curl -sSf https://raw.githubusercontent.com/JackMagee21/RSHELL/main/install.sh | sh
+```
+
+Restart your terminal after installing, then type `rSHELL` to start.
+
+### Download manually
+
+Grab the latest binary from the [Releases](https://github.com/JackMagee21/RSHELL/releases/latest) page.
+
+### Build from source
 
 Requires Rust (stable). Install it via [rustup](https://rustup.rs) if you haven't already.
 
@@ -55,12 +81,8 @@ Requires Rust (stable). Install it via [rustup](https://rustup.rs) if you haven'
 git clone https://github.com/JackMagee21/RSHELL
 cd RSHELL
 cargo build --release
-./target/release/new_R_Shell
+./target/release/rSHELL
 ```
-
-### Windows `.exe`
-
-Download the latest release from the [Releases](https://github.com/JackMagee21/RSHELL/releases) page and run it directly — no installation needed.
 
 ---
 

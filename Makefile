@@ -1,6 +1,6 @@
 # ── myshell Makefile ──────────────────────────────────────
 
-APP_NAME = new_R_Shell
+APP_NAME = rSHELL
 WIN_TARGET = x86_64-pc-windows-msvc
 LINUX_TARGET = x86_64-unknown-linux-gnu
 INSTALL_DIR = /mnt/c/Program Files/myshell
