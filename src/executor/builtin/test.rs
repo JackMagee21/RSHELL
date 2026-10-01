@@ -45,3 +45,6 @@ fn compare_nums(a: &str, b: &str, f: impl Fn(i64, i64) -> bool) -> i32 {
         _ => { eprintln!("test: '{}' or '{}' is not a number", a, b); 1 }
     }
 }
+
+#[cfg(test)]
+mod tests;
