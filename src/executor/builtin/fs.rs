@@ -274,6 +274,9 @@ fn parse_chmod_mode(mode_str: &str, current: u32) -> Option<u32> {
     Some(mode)
 }
 
+#[cfg(test)]
+mod tests;
+
 pub fn builtin_ln(args: &[String]) -> i32 {
     let mut symbolic = false;
     let mut force = false;

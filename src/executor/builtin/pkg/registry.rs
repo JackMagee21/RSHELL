@@ -81,3 +81,6 @@ pub fn platform_pkg(pkg: &Package) -> Option<PlatformPkg> {
     #[cfg(target_os = "linux")]
     return pkg.linux.clone();
 }
+
+#[cfg(test)]
+mod tests;

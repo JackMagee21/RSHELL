@@ -32,3 +32,6 @@ pub fn read_meta(dir: &PathBuf) -> anyhow::Result<Meta> {
     let meta = serde_json::from_str(&contents)?;
     Ok(meta)
 }
+
+#[cfg(test)]
+mod tests;

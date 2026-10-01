@@ -357,3 +357,6 @@ fn platform_command(program: &str) -> Proc {
     }
     Proc::new(program)
 }
+
+#[cfg(test)]
+mod tests;
