@@ -84,6 +84,8 @@ cargo build --release
 ./target/release/rSHELL
 ```
 
+Or, if you have `make` (every Linux/macOS box, or Windows via WSL/Git Bash), just run `make run` — it installs Rust itself via rustup if it isn't already on your PATH, builds, and launches. `make` itself is the one thing it can't install for you; on native Windows without WSL or Git Bash, use the `cargo build --release` steps above instead, or install `make` first (e.g. `winget install GnuWin32.Make` or `choco install make`).
+
 ---
 
 ## Built-in Commands
