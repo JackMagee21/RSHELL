@@ -262,3 +262,6 @@ fn parse_primary(s: &str) -> Result<(i64, &str)> {
         Ok((s[..end].parse()?, &s[end..]))
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -121,7 +121,10 @@ pub fn builtin_names() -> &'static [&'static str] {
         "cd", "pwd", "echo", "export", "unset", "alias", "unalias",
         "history", "source", "help", "jobs", "fg", "bg", "kill",
         "clear", "cls", "exit", "quit", "ls", "true", "false",
-        "test", "functions", "sleep", "touch", "mkdir", 
+        "test", "functions", "sleep", "touch", "mkdir",
         "rm", "cp", "mv", "cat",
     ]
 }
+
+#[cfg(test)]
+mod tests;

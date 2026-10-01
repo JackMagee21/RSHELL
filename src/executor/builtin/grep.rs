@@ -174,3 +174,6 @@ fn highlight_match(line: &str, pattern: &str, ignore_case: bool) -> String {
     }
     result
 }
+
+#[cfg(test)]
+mod tests;

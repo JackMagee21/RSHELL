@@ -85,3 +85,6 @@ fn levenshtein(a: &str, b: &str) -> usize {
     }
     dp[m][n]
 }
+
+#[cfg(test)]
+mod tests;

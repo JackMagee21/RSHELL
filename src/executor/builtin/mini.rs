@@ -196,6 +196,9 @@ fn find_comment_pos(line: &str, prefix: &str) -> Option<usize> {
     None
 }
 
+#[cfg(test)]
+mod tests;
+
 // ── Render ────────────────────────────────────────────────────────────────────
 
 fn render(stdout: &mut io::Stdout, lines: &Vec<String>, row: usize, col: usize, filename: &str, ext: &str) {
