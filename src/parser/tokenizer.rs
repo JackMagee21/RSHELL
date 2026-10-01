@@ -175,3 +175,6 @@ fn expand_glob(pattern: &str) -> Vec<String> {
         Err(_) => vec![pattern.to_string()],
     }
 }
+
+#[cfg(test)]
+mod tests;

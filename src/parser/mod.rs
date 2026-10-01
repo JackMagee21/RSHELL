@@ -129,3 +129,6 @@ fn parse_simple(tokens: &[Token]) -> Result<(Command, &[Token])> {
 
     Ok((Command::Simple { args, redirects, background }, &tokens[i..]))
 }
+
+#[cfg(test)]
+mod tests;

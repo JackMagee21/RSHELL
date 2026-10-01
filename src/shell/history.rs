@@ -100,3 +100,6 @@ impl Shell {
         input.to_string()
     }
 }
+
+#[cfg(test)]
+mod tests;

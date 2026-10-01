@@ -250,3 +250,6 @@ pub fn parse_function_start(line: &str) -> Option<String> {
 
     None
 }
+
+#[cfg(test)]
+mod tests;
