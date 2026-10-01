@@ -1,5 +1,23 @@
 # ── myshell Makefile ──────────────────────────────────────
 
+# GNU Make on native Windows defaults to cmd.exe as its recipe shell,
+# but every recipe below is POSIX shell. Force Git Bash (already
+# required to `git clone` this repo in the first place) when present,
+# so recipes behave the same on Windows as on Linux/macOS/WSL.
+ifeq ($(OS),Windows_NT)
+  GITBASH := C:/Program Files/Git/bin/bash.exe
+  ifneq ($(shell if exist "$(GITBASH)" echo yes),yes)
+    GITBASH := $(subst \,/,$(LOCALAPPDATA))/Programs/Git/bin/bash.exe
+    ifneq ($(shell if exist "$(subst /,\,$(GITBASH))" echo yes),yes)
+      GITBASH :=
+    endif
+  endif
+  ifneq ($(GITBASH),)
+    SHELL := $(GITBASH)
+    .SHELLFLAGS := -c
+  endif
+endif
+
 APP_NAME = rSHELL
 WIN_TARGET = x86_64-pc-windows-msvc
 LINUX_TARGET = x86_64-unknown-linux-gnu
@@ -43,9 +61,43 @@ install-win-system:
 	cp target/$(WIN_TARGET)/release/$(APP_NAME).exe "$(INSTALL_DIR)/"
 	@echo "✅ Installed to Program Files"
 
-# Run the shell locally (Linux)
-run:
-	cargo run --bin $(APP_NAME)
+# Installs Rust via rustup if `cargo` isn't already on PATH, so a
+# fresh clone needs nothing but `make` (+ curl) pre-installed.
+ensure-rust:
+	@command -v cargo >/dev/null 2>&1 && exit 0; \
+	echo "⚠️  Rust not found — installing via rustup..."; \
+	case "$$(uname -s 2>/dev/null)" in \
+		MINGW*|MSYS*) \
+			curl -sSfo /tmp/rustup-init.exe https://win.rustup.rs/x86_64 && \
+			/tmp/rustup-init.exe -y --default-toolchain stable ;; \
+		*) \
+			curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable ;; \
+	esac
+
+# Windows-only: `cargo build` needs a C/C++ linker, and Rust's default
+# Windows target (x86_64-pc-windows-msvc) needs the one that ships with
+# Visual Studio Build Tools — rustup doesn't install it for you. Checked
+# via vswhere (the official way to query installed VS components), since
+# link.exe isn't normally on PATH even after a correct install.
+ensure-msvc:
+	@case "$$(uname -s 2>/dev/null)" in \
+		MINGW*|MSYS*) \
+			VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"; \
+			if [ -x "$$VSWHERE" ] && "$$VSWHERE" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>/dev/null | grep -q .; then \
+				exit 0; \
+			fi; \
+			echo "⚠️  MSVC C++ build tools not found — installing via winget."; \
+			echo "    This is a multi-GB download and can take several minutes,"; \
+			echo "    and may prompt you for admin approval (UAC)."; \
+			winget install --id Microsoft.VisualStudio.2022.BuildTools --silent \
+				--accept-package-agreements --accept-source-agreements \
+				--override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended" ;; \
+		*) exit 0 ;; \
+	esac
+
+# Run the shell locally (any OS with `make` + `curl`)
+run: ensure-rust ensure-msvc
+	@export PATH="$$HOME/.cargo/bin:$$PATH"; cargo run --bin $(APP_NAME)
 
 # Run tests
 test:
@@ -110,4 +162,4 @@ help:
 	@echo "    make clean-all    Clean build artifacts + deployed .exe"
 	@echo ""
 
-.PHONY: all check build linux exe all-platforms install-win install-win-system run test clean fmt lint
+.PHONY: all check build linux exe all-platforms install-win install-win-system ensure-rust ensure-msvc run test clean fmt lint
