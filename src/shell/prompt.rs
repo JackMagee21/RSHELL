@@ -49,6 +49,9 @@ fn shorten_path(path: &str) -> String {
     parts[parts.len() - 2..].join("/")
 }
 
+#[cfg(test)]
+mod tests;
+
 /// Return the current git branch name, or None if not in a repo.
 fn get_git_branch() -> Option<String> {
     let output = std::process::Command::new("git")
