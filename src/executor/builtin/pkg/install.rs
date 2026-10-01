@@ -72,8 +72,11 @@ fn extract_zip(data: &[u8], dest: &PathBuf) -> anyhow::Result<()> {
     let mut archive = zip::ZipArchive::new(Cursor::new(data))?;
     let total       = archive.len();
     for i in 0..total {
-        let mut file     = archive.by_index(i)?;
-        let out_path = dest.join(file.name());
+        let mut file = archive.by_index(i)?;
+        let Some(name) = file.enclosed_name() else {
+            anyhow::bail!("refusing to extract unsafe zip entry: {}", file.name());
+        };
+        let out_path = dest.join(name);
         print_extract_progress(i + 1, total);
         if file.name().ends_with('/') {
             std::fs::create_dir_all(&out_path)?;
