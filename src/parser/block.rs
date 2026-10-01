@@ -63,7 +63,9 @@ pub fn parse_for(input: &str) -> Result<Command> {
     let rest = rest[2..].trim();
 
     let (items_str, body_str) = if let Some(do_pos) = find_keyword(rest, "do") {
-        let items = rest[..do_pos].trim();
+        // Items may be written as "a b c; do" — strip the trailing ';'
+        // so it doesn't get glued onto the last item by split_whitespace().
+        let items = rest[..do_pos].trim().trim_end_matches(';').trim();
         let body_and_done = rest[do_pos + 2..].trim();
         let (body, _) = extract_block_done(body_and_done)?;
         (items.to_string(), body)
@@ -95,17 +97,24 @@ pub fn parse_for(input: &str) -> Result<Command> {
 pub fn parse_while(input: &str) -> Result<Command> {
     let rest = input[5..].trim();
 
-    let (cond_str, remainder) = if let Some(do_pos) = find_keyword(rest, "do") {
-        (rest[..do_pos].trim(), rest[do_pos + 2..].trim())
+    // "do ... done" and "{ ... }" bodies are delimited differently, so each
+    // branch must use the extractor that matches its own closing keyword.
+    let (cond_str, body_str) = if let Some(do_pos) = find_keyword(rest, "do") {
+        let cond_str = rest[..do_pos].trim();
+        let remainder = rest[do_pos + 2..].trim();
+        let (body, _) = extract_block_done(remainder)?;
+        (cond_str, body)
     } else if rest.contains('{') {
         let brace = rest.find('{').unwrap();
-        (rest[..brace].trim(), rest[brace..].trim())
+        let cond_str = rest[..brace].trim();
+        let remainder = rest[brace..].trim();
+        let (body, _) = extract_block(remainder)?;
+        (cond_str, body)
     } else {
         bail!("while: expected 'do' or '{{'");
     };
 
     let condition = super::parse(cond_str)?;
-    let (body_str, _) = extract_block(remainder)?;
     let body = parse_block_lines(&body_str)?;
 
     Ok(Command::While {
@@ -215,3 +224,6 @@ fn expand_glob(pattern: &str) -> Vec<String> {
         Err(_) => vec![pattern.to_string()],
     }
 }
+
+#[cfg(test)]
+mod tests;
