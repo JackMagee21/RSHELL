@@ -107,3 +107,17 @@ fn tilde_expands_to_home_dir() {
     let home = dirs::home_dir().unwrap().display().to_string();
     assert_eq!(t, vec![Token::Word(home)]);
 }
+
+// ── Failure / edge cases ──────────────────────────────────────────────────────
+
+#[test]
+fn dangling_redirect_tokenizes_without_a_filename() {
+    // tokenize() accepts this; the parser is what rejects a redirect with no target.
+    let t = tokenize("cmd 2>").unwrap();
+    assert_eq!(t, vec![Token::Word("cmd".into()), Token::RedirectErr]);
+}
+
+#[test]
+fn trailing_backslash_does_not_panic() {
+    assert!(tokenize("echo \\").is_ok());
+}
