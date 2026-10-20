@@ -1,0 +1,37 @@
+[package]
+name = "rSHELL"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "rSHELL"
+path = "src/main.rs"
+
+[dependencies]
+anyhow      = "1.0.100"
+reedline    = "=0.30.0"
+crossterm   = "0.28.1"
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+dirs        = "5"
+glob        = "0.3"
+nu-ansi-term = "0.50"
+libc        = "0.2"
+filetime    = "0.2.28"
+flate2      = "1"
+tar         = "0.4.45"
+zip         = { version = "0.6", default-features = false, features = ["deflate"] }
+xz2         = "0.1"
+ureq        = { version = "2.9", features = ["tls"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.1", features = [
+    "Win32_System_Console",
+    "Win32_System_Pipes",
+    "Win32_Security",
+    "Win32_Foundation",
+]}
+
+[profile.release]
+opt-level = 3
+strip     = true
