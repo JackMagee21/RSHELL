@@ -118,3 +118,24 @@ fn expand_vars_underscore_and_digits_in_name() {
     shell.env.insert("MY_VAR_1".to_string(), "x".to_string());
     assert_eq!(expand_vars(&shell, "$MY_VAR_1!"), "x!");
 }
+
+// ── Failure cases ────────────────────────────────────────────────────────
+
+#[test]
+fn arithmetic_unclosed_paren_is_error() {
+    assert!(eval_arithmetic("(1 + 2").is_err());
+}
+
+#[test]
+fn arithmetic_operator_without_operand_is_error() {
+    assert!(eval_arithmetic("").is_err());
+    assert!(eval_arithmetic("1 +").is_err());
+    assert!(eval_arithmetic("* 3").is_err());
+}
+
+#[test]
+fn expand_arithmetic_failure_becomes_zero() {
+    let shell = mk_shell();
+    assert_eq!(expand_arithmetic(&shell, "x=$((1/0))"), "x=0");
+    assert_eq!(expand_arithmetic(&shell, "x=$((abc))"), "x=0");
+}
