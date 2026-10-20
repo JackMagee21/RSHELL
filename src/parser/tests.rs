@@ -145,3 +145,72 @@ fn while_loop_parses_condition_and_body() {
         other => panic!("expected While, got {:?}", other),
     }
 }
+
+// ── Failure cases ─────────────────────────────────────────────────────────────
+
+#[test]
+fn pipe_missing_command_on_either_side_is_an_error() {
+    assert!(parse("| b").is_err());
+    assert!(parse("a |").is_err());
+    assert!(parse("a | | b").is_err());
+}
+
+#[test]
+fn and_or_missing_right_side_is_an_error() {
+    assert!(parse("a &&").is_err());
+    assert!(parse("a ||").is_err());
+}
+
+#[test]
+fn lone_operators_are_errors() {
+    assert!(parse(";").is_err());
+    assert!(parse("&").is_err());
+    assert!(parse("&&").is_err());
+}
+
+#[test]
+fn redirect_followed_by_operator_is_an_error() {
+    assert!(parse("cmd > | b").is_err());
+    assert!(parse("cmd >> && b").is_err());
+    assert!(parse("cmd < ;").is_err());
+    assert!(parse("cmd 2> |").is_err());
+}
+
+#[test]
+fn for_loop_missing_parts_is_an_error() {
+    assert!(parse("for").is_err());                       // no variable
+    assert!(parse("for i").is_err());                     // no 'in'
+    assert!(parse("for i a b; do echo; done").is_err());  // 'in' missing
+    assert!(parse("for i in a b c").is_err());            // no 'do' or '{'
+    assert!(parse("for i in").is_err());                  // no items or body
+}
+
+#[test]
+fn while_missing_do_or_brace_is_an_error() {
+    assert!(parse("while").is_err());
+    assert!(parse("while true").is_err());
+}
+
+#[test]
+fn if_missing_then_or_brace_is_an_error() {
+    assert!(parse("if").is_err());
+    assert!(parse("if true").is_err());
+}
+
+#[test]
+fn unclosed_brace_block_is_an_error_not_a_panic() {
+    assert!(parse("if true { echo hi").is_err());
+    assert!(parse("while true { echo hi").is_err());
+    assert!(parse("for i in a { echo $i").is_err());
+}
+
+#[test]
+fn brace_block_with_multibyte_chars_keeps_else() {
+    // Byte offsets, not char offsets, must be used to find the closing brace.
+    match parse("if true { echo é } else { echo b }").unwrap() {
+        Command::If { else_body: Some(else_body), .. } => {
+            assert_eq!(else_body.len(), 1);
+        }
+        other => panic!("expected If with else, got {:?}", other),
+    }
+}
