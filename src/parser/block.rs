@@ -132,17 +132,18 @@ pub fn extract_block(s: &str) -> Result<(String, Option<String>)> {
     if s.starts_with('{') {
         // Brace style: count depth to find matching }
         let mut depth = 0;
-        let mut end = 0;
-        for (i, ch) in s.chars().enumerate() {
+        let mut end = None;
+        for (i, ch) in s.char_indices() {
             match ch {
                 '{' => depth += 1,
                 '}' => {
                     depth -= 1;
-                    if depth == 0 { end = i; break; }
+                    if depth == 0 { end = Some(i); break; }
                 }
                 _ => {}
             }
         }
+        let end = end.ok_or_else(|| anyhow::anyhow!("unclosed '{{'"))?;
         let body = s[1..end].trim().to_string();
         let after = s[end + 1..].trim();
         let else_part = if after.starts_with("else") {
@@ -197,19 +198,13 @@ pub fn parse_block_lines(block: &str) -> Result<Vec<Command>> {
 
 /// Find a keyword at a word boundary within s, returning its byte offset.
 pub fn find_keyword(s: &str, keyword: &str) -> Option<usize> {
-    let mut pos = 0;
-    while pos + keyword.len() <= s.len() {
-        if s[pos..].starts_with(keyword) {
-            let before_ok = pos == 0 || s.as_bytes()[pos - 1].is_ascii_whitespace();
-            let after_ok  = pos + keyword.len() == s.len()
-                || s.as_bytes()[pos + keyword.len()].is_ascii_whitespace();
-            if before_ok && after_ok {
-                return Some(pos);
-            }
-        }
-        pos += 1;
-    }
-    None
+    // match_indices only yields char boundaries, so multibyte text is safe.
+    s.match_indices(keyword).map(|(pos, _)| pos).find(|&pos| {
+        let before_ok = pos == 0 || s.as_bytes()[pos - 1].is_ascii_whitespace();
+        let after_ok  = pos + keyword.len() == s.len()
+            || s.as_bytes()[pos + keyword.len()].is_ascii_whitespace();
+        before_ok && after_ok
+    })
 }
 
 fn expand_glob(pattern: &str) -> Vec<String> {
