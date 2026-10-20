@@ -318,6 +318,16 @@ See the `Makefile` for all available build targets (`make help`).
 
 ---
 
+## Tests
+
+```sh
+make test   # or: cargo test
+```
+
+Unit tests live next to the code they cover. See [test docs/README.md](test%20docs/README.md) for how they are organized and [test docs/failure-cases.md](test%20docs/failure-cases.md) for the failure-case tests.
+
+---
+
 ## Why?
 
 Mainly to learn Rust properly — parsers, I/O, cross-platform system calls, the works. If you find it useful that's a bonus.
