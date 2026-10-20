@@ -203,31 +203,39 @@ fn is_incomplete(input: &str) -> bool {
     }
 
     // Unclosed quotes
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut chars = trimmed.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' if in_double => { chars.next(); } // skip escaped char
-            '\'' if !in_double => in_single = !in_single,
-            '"'  if !in_single => in_double = !in_double,
-            _ => {}
-        }
-    }
-    if in_single || in_double {
+    let (plain, open_quote) = strip_quotes(trimmed);
+    if open_quote {
         return true;
     }
 
-    // Open block keywords — count opens vs closes so nested blocks work
-    let open_blocks = count_keyword(trimmed, "do")
-        + count_keyword(trimmed, "then")
-        + count_keyword(trimmed, "function");
+    // Open blocks: do/then and unclosed '{'. Closed by done/fi and '}'.
+    let open_blocks = count_keyword(&plain, "do")
+        + count_keyword(&plain, "then")
+        + brace_depth(&plain);
 
-    let close_blocks = count_keyword(trimmed, "done")
-        + count_keyword(trimmed, "fi")
-        + brace_depth(trimmed);
+    let close_blocks = count_keyword(&plain, "done")
+        + count_keyword(&plain, "fi");
 
     open_blocks > close_blocks
+}
+
+/// Replace quoted text and escaped characters with spaces, so keywords and
+/// braces inside them are ignored. Also returns whether a quote is still open.
+fn strip_quotes(s: &str) -> (String, bool) {
+    let mut out = String::with_capacity(s.len());
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        let quoted = in_single || in_double;
+        match c {
+            '\\' if !in_single => { chars.next(); out.push(' '); }
+            '\'' if !in_double => { in_single = !in_single; out.push(' '); }
+            '"'  if !in_single => { in_double = !in_double; out.push(' '); }
+            _ => out.push(if quoted { ' ' } else { c }),
+        }
+    }
+    (out, in_single || in_double)
 }
 
 /// Count how many times a word-boundary keyword appears in a string.
@@ -252,8 +260,7 @@ fn count_keyword(s: &str, keyword: &str) -> usize {
     count
 }
 
-/// Returns negative depth if there are more } than {, zero if balanced.
-/// We use this to detect open brace blocks.
+/// Number of '{' not yet closed by a '}'.
 fn brace_depth(s: &str) -> usize {
     let mut depth: i32 = 0;
     let mut in_single  = false;
