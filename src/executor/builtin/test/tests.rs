@@ -102,3 +102,45 @@ fn expands_variables_and_arithmetic_in_operands() {
     let args: Vec<String> = ["test", "$N", "-eq", "$((2+3))"].iter().map(|s| s.to_string()).collect();
     assert_eq!(builtin_test(&shell, &args), 0);
 }
+
+// ── Failure cases ─────────────────────────────────────────────────────────────
+
+#[test]
+fn unknown_operator_returns_failure() {
+    assert_eq!(run(&["test", "a", "-x", "b"]), 1);
+}
+
+#[test]
+fn missing_operand_returns_failure() {
+    assert_eq!(run(&["test", "1", "-eq"]), 1);
+    assert_eq!(run(&["test", "a", "="]), 1);
+}
+
+#[test]
+fn too_many_operands_returns_failure() {
+    assert_eq!(run(&["test", "a", "=", "b", "c"]), 1);
+}
+
+#[test]
+fn non_numeric_operand_fails_closed() {
+    assert_eq!(run(&["test", "3", "-eq", "x"]), 1);
+    assert_eq!(run(&["test", "3", "-lt", ""]), 1);
+}
+
+#[test]
+fn file_checks_on_missing_paths_fail() {
+    assert_eq!(run(&["test", "-f", "/no/such/rshell/file"]), 1);
+    assert_eq!(run(&["test", "-d", "/no/such/rshell/dir"]), 1);
+    assert_eq!(run(&["test", "-s", "/no/such/rshell/file"]), 1);
+}
+
+#[test]
+fn size_check_fails_on_empty_file() {
+    let file = std::env::temp_dir().join("rshell_test_empty_file.txt");
+    std::fs::write(&file, "").unwrap();
+
+    assert_eq!(run(&["test", "-s", file.to_str().unwrap()]), 1);
+    assert_eq!(run(&["test", "-e", file.to_str().unwrap()]), 0);
+
+    std::fs::remove_file(&file).ok();
+}
